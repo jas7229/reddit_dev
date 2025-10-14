@@ -1,0 +1,37 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "jasdevtest",
+  "post": {
+    "dir": "public",
+    "entrypoints": {
+      "default": {
+        "entry": "index.html",
+        "height":"tall"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "media": {
+    "dir": "assets"
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Create a new post",
+        "description": "jasdevtest",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/post-create"
+      }
+    ]
+  },
+  "triggers": {
+    "onAppInstall": "/internal/on-app-install"
+  },
+  "dev": {
+    "subreddit": "jasdevtest_dev"
+  }
+}
