@@ -4,7 +4,7 @@ html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;      /* remove scrollbars */
-    background: black;     /* letterbox bars */
+    background: black;     /* letterbox bars */ 
     display: flex;
     justify-content: center;
     align-items: center;
@@ -12,7 +12,7 @@ html, body {
 
 #unity-canvas {
     display: block;
-    background: black;      /* fallback for letterboxing */
+    background: black;      /* fallback for letterboxing */       
     max-width: 100%;        /* prevent canvas from overflowing on narrow screens */
     max-height: 100%;
 }

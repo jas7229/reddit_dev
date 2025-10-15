@@ -6,10 +6,72 @@
     <title>Unity Web Player | RedditTest1</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
+    <style>
+      /* Devvit-specific styles */
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        overflow: hidden;
+      }
+      
+      #unity-container {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        position: relative;
+      }
+      
+      #unity-canvas {
+        display: block;
+        background: #000;
+      }
+      
+      #unity-loading-bar {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1000;
+      }
+      
+      #unity-warning {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        z-index: 1001;
+      }
+      
+      #unity-footer {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      
+      #unity-fullscreen-button {
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.8);
+        padding: 5px 10px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+      
+      #unity-fullscreen-button:hover {
+        background: rgba(255, 255, 255, 1);
+      }
+    </style>
   </head>
   <body>
     <div id="unity-container" class="unity-desktop">
-      <!-- <canvas id="unity-canvas" width=1080 height=1920 tabindex="-1"></canvas> -->
       <canvas id="unity-canvas"></canvas>
       <div id="unity-loading-bar">
         <div id="unity-logo"></div>
@@ -17,19 +79,18 @@
           <div id="unity-progress-bar-full"></div>
         </div>
       </div>
-      <div id="unity-warning"> </div>
+      <div id="unity-warning"></div>
       <div id="unity-footer">
         <div id="unity-logo-title-footer"></div>
-        <div id="unity-fullscreen-button"></div>
+        <div id="unity-fullscreen-button">⛶ Fullscreen</div>
         <div id="unity-build-title">RedditTest1</div>
       </div>
     </div>
     
-    <script src="fit-canvas.js"></script>
-
-    <script src="unity-loader.js"></script>
-
+    <!-- Load scripts in proper order -->
+    <script src="unity-api.js"></script>
     <script src="unity-setup.js"></script>
+    <script src="unity-loader.js"></script>
 
   </body>
 </html>

@@ -1,39 +1,40 @@
+// Unity WebGL Loader for Devvit
+(function() {
+    // Get canvas element
+    const canvas = document.querySelector("#unity-canvas");
+    
+    // Unity Module configuration
+    var Module = {
+        canvas: canvas,
+        scalingMode: "auto", // ensures loader and game scale with canvas
+    };
 
-      var canvas = document.querySelector("#unity-canvas");
-
-      var Module = {
-    canvas: canvas,
-    scalingMode: "auto", // ensures loader and game scale with canvas
-};
-
-      // Shows a temporary message banner/ribbon for a few seconds, or
-      // a permanent error message on top of the canvas if type=='error'.
-      // If type=='warning', a yellow highlight color is used.
-      // Modify or remove this function to customize the visually presented
-      // way that non-critical warnings and error messages are presented to the
-      // user.
-      function unityShowBanner(msg, type) {
+    // Shows a temporary message banner/ribbon for a few seconds, or
+    // a permanent error message on top of the canvas if type=='error'.
+    // If type=='warning', a yellow highlight color is used.
+    function unityShowBanner(msg, type) {
         var warningBanner = document.querySelector("#unity-warning");
         function updateBannerVisibility() {
-          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+            warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
         }
         var div = document.createElement('div');
         div.innerHTML = msg;
         warningBanner.appendChild(div);
         if (type == 'error') div.style = 'background: red; padding: 10px;';
         else {
-          if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
-          setTimeout(function() {
-            warningBanner.removeChild(div);
-            updateBannerVisibility();
-          }, 5000);
+            if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
+            setTimeout(function() {
+                warningBanner.removeChild(div);
+                updateBannerVisibility();
+            }, 5000);
         }
         updateBannerVisibility();
-      } 
+    }
 
-      var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/RedditTest1_WebGLBuild2.loader.js";
-      var config = {
+    // Unity build configuration
+    var buildUrl = "Build";
+    var loaderUrl = buildUrl + "/RedditTest1_WebGLBuild2.loader.js";
+    var config = {
         arguments: [],
         dataUrl: buildUrl + "/RedditTest1_WebGLBuild2.data",
         frameworkUrl: buildUrl + "/RedditTest1_WebGLBuild2.framework.js",
@@ -43,67 +44,57 @@
         productName: "RedditTest1",
         productVersion: "1.0",
         showBanner: unityShowBanner,
-        // errorHandler: function(err, url, line) {
-        //    alert("error " + err + " occurred at line " + line);
-        //    // Return 'true' if you handled this error and don't want Unity
-        //    // to process it further, 'false' otherwise.
-        //    return true;
-        // },
-      };
+    };
 
-      // By default, Unity keeps WebGL canvas render target size matched with
-      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
-      // Set this to false if you want to decouple this synchronization from
-      // happening inside the engine, and you would instead like to size up
-      // the canvas DOM size and WebGL render target sizes yourself.
-      // config.matchWebGLToCanvasSize = false;
-
-      // If you would like all file writes inside Unity Application.persistentDataPath
-      // directory to automatically persist so that the contents are remembered when
-      // the user revisits the site the next time, uncomment the following line:
-      // config.autoSyncPersistentDataPath = true;
-      // This autosyncing is currently not the default behavior to avoid regressing
-      // existing user projects that might rely on the earlier manual
-      // JS_FileSystem_Sync() behavior, but in future Unity version, this will be
-      // expected to change.
-
-      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
-
+    // Configure for mobile vs desktop
+    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        // Mobile device configuration
         var meta = document.createElement('meta');
         meta.name = 'viewport';
         meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
         document.getElementsByTagName('head')[0].appendChild(meta);
+        
         document.querySelector("#unity-container").className = "unity-mobile";
         canvas.className = "unity-mobile";
+        
+        // Keep native device pixel ratio for crisp rendering on mobile
+        // Don't override devicePixelRatio - let Unity handle it automatically
+        console.log('[Unity] Mobile detected, devicePixelRatio:', window.devicePixelRatio);
+    } else {
+        // Desktop configuration - let CSS handle sizing
+        canvas.style.maxWidth = "100%";
+        canvas.style.maxHeight = "100%";
+        console.log('[Unity] Desktop detected, devicePixelRatio:', window.devicePixelRatio);
+    }
 
-        // To lower canvas resolution on mobile devices to gain some
-        // performance, uncomment the following line:
-        // config.devicePixelRatio = 1;
+    // Show loading bar
+    document.querySelector("#unity-loading-bar").style.display = "block";
 
-
-      } else {
-        // Desktop style: Render the game canvas in a window that can be maximized to fullscreen:
-        canvas.style.width = "1080px";
-        canvas.style.height = "1920px";
-      }
-
-      document.querySelector("#unity-loading-bar").style.display = "block";
-
-      var script = document.createElement("script");
-      script.src = loaderUrl;
-      script.onload = () => {
+    // Load Unity
+    var script = document.createElement("script");
+    script.src = loaderUrl;
+    script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
-          document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
-              }).then((unityInstance) => {
-                document.querySelector("#unity-loading-bar").style.display = "none";
-                document.querySelector("#unity-fullscreen-button").onclick = () => {
-                  unityInstance.SetFullscreen(1);
-                };
-
-              }).catch((message) => {
-                alert(message);
-              });
+            document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
+        }).then((unityInstance) => {
+            // Hide loading bar when ready
+            document.querySelector("#unity-loading-bar").style.display = "none";
+            
+            // Set up fullscreen button
+            document.querySelector("#unity-fullscreen-button").onclick = () => {
+                unityInstance.SetFullscreen(1);
             };
+            
+            // Store Unity instance globally for potential communication
+            window.unityInstance = unityInstance;
+            
+            console.log("[Unity] Game loaded successfully");
+            
+        }).catch((message) => {
+            console.error("[Unity] Failed to load:", message);
+            unityShowBanner("Failed to load Unity game: " + message, 'error');
+        });
+    };
 
-      document.body.appendChild(script);
+    document.body.appendChild(script);
+})(); // End of IIFE
