@@ -8,20 +8,20 @@ export const createPost = async () => {
 
   return await reddit.submitCustomPost({
     splash: {
-      // Splash Screen Configuration
-      appDisplayName: 'jasdevtest',
-      backgroundUri: 'default-splash.png',
-      buttonLabel: 'Tap to Start',
-      description: 'An exciting interactive experience',
-      entryUri: 'index.html',
-      heading: 'Welcome to the Game!',
-      appIconUri: 'default-icon.png',
+      // Custom Splash Screen for Reddit Battler
+      appDisplayName: '⚔️ Avatar Arena',
+      backgroundUri: 'ArenaSplash.png', // Fixed case sensitivity
+      buttonLabel: '🎮 Start Battle!',
+      description: 'Epic turn-based battles with Reddit users! Level up, earn gold, and become the ultimate champion!',
+      heading: 'Ready for Battle?',
+      appIconUri: 'ArenaIcon.png', // Fixed case sensitivity
     },
     postData: {
       gameState: 'initial',
-      score: 0,
+      playerLevel: 1,
+      battles: 0,
     },
     subredditName: subredditName,
-    title: 'jasdevtest',
+    title: '⚔️ Avatar Arena - Epic Turn-Based Combat!',
   });
 };

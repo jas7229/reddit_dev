@@ -75,6 +75,94 @@ window.UnityDevvitAPI = {
         return window.username || "RedditUser";
     },
 
+    // Get player character data
+    async getPlayer() {
+        try {
+            const response = await fetch('/api/player');
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error getting player:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
+    // Update player stats
+    async updatePlayer(statsJson) {
+        try {
+            const stats = JSON.parse(statsJson);
+            const response = await fetch('/api/player/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(stats)
+            });
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error updating player:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
+    // Get random enemy
+    async getEnemy() {
+        try {
+            const response = await fetch('/api/enemy');
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error getting enemy:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
+    // Battle System Functions
+    async startBattle() {
+        try {
+            const response = await fetch('/api/battle/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error starting battle:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
+    async battleAction(battleId, action) {
+        try {
+            const response = await fetch('/api/battle/action', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ battleId, action })
+            });
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error performing battle action:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
+    async getBattle(battleId) {
+        try {
+            const response = await fetch(`/api/battle/${battleId}`);
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error getting battle:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
     // Log message to browser console (useful for debugging)
     log(message) {
         console.log('[Unity]', message);
@@ -94,6 +182,16 @@ window.getUserAvatar = window.UnityDevvitAPI.getUserAvatar;
 window.getUsername = window.UnityDevvitAPI.getUsername;
 window.unityLog = window.UnityDevvitAPI.log;
 window.unityAlert = window.UnityDevvitAPI.alert;
+
+// Player Character System functions
+window.getPlayer = window.UnityDevvitAPI.getPlayer;
+window.updatePlayer = window.UnityDevvitAPI.updatePlayer;
+window.getEnemy = window.UnityDevvitAPI.getEnemy;
+
+// Battle System functions
+window.startBattle = window.UnityDevvitAPI.startBattle;
+window.battleAction = window.UnityDevvitAPI.battleAction;
+window.getBattle = window.UnityDevvitAPI.getBattle;
 
 // Also create a synchronous version for immediate access
 window.getUserAvatarSync = function() {
