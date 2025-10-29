@@ -102,14 +102,25 @@ void Start()
 }
 void Update() 
 {
-    // Auto-refresh from server periodically
+    // Auto-refresh from server periodically (but not during battles)
     if (autoRefreshFromServer && Time.time - lastServerRefresh > serverRefreshInterval) 
     {
-        #if UNITY_WEBGL && !UNITY_EDITOR
+        // Check if there's an active battle - don't override battle HP
+        BattleUIManager battleManager = FindFirstObjectByType<BattleUIManager>();
+        bool inActiveBattle = battleManager != null && battleManager.IsInActiveBattle();
+        
+        if (!inActiveBattle)
+        {
+            #if UNITY_WEBGL && !UNITY_EDITOR
             Debug.Log("Auto-refreshing player data from server...");
             RefreshPlayerData();
             lastServerRefresh = Time.time;
         #endif
+        }
+        else
+        {
+            Debug.Log("Skipping auto-refresh - battle in progress");
+        }
     }
 }
 

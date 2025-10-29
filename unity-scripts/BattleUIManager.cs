@@ -57,6 +57,7 @@ public class BattleUIManager : MonoBehaviour
     
     private float lastUpdateTime;
     private BattleState currentBattle;
+    private bool inActiveBattle = false; // Flag to prevent auto-updates during battle
     
     // Track loaded avatars to prevent unnecessary reloading
     private string loadedPlayerUsername = "";
@@ -74,7 +75,9 @@ public class BattleUIManager : MonoBehaviour
     private bool playerExperienceFlashing = false;
     private bool enemyHealthFlashing = false;
     
-    // Duplicate extern declarations removed - using the ones at the top of the class
+    // External function for processing enemy turns
+    [DllImport("__Internal")]
+    private static extern void ProcessEnemyTurn(string battleId);
     
     // Import avatar function (same as LoadAvatar.cs uses)
     [DllImport("__Internal")]
@@ -461,6 +464,7 @@ public class BattleUIManager : MonoBehaviour
             if (response.status == "success" && response.battleState != null) 
             {
                 currentBattle = response.battleState;
+                inActiveBattle = true; // Disable auto-updates during battle
                 
                 if (battlePanel != null) 
                 {
@@ -498,6 +502,7 @@ public class BattleUIManager : MonoBehaviour
                 {
                     playerManager.currentPlayer = currentBattle.player;
                     Debug.Log($"Updated PlayerManager: HP {currentBattle.player.stats.hitPoints}/{currentBattle.player.stats.maxHitPoints}");
+                    Debug.Log($"Battle flag set - preventing external HP updates");
                 }
                 
                 // Show player turn immediately and trigger attack animation
@@ -513,6 +518,13 @@ public class BattleUIManager : MonoBehaviour
                 else
                 {
                     Debug.LogWarning("Animation already playing - skipping new animation sequence");
+                }
+                
+                // Check if it's now enemy turn and process it automatically
+                if (!response.battleEnded && currentBattle.isActive && currentBattle.currentTurn == "enemy")
+                {
+                    Debug.Log("It's enemy turn - processing enemy turn after delay");
+                    Invoke("ProcessEnemyTurnDelayed", 2f); // 2 second delay for animations
                 }
                 
                 // Don't start enemy turn delay here - it's handled in the sequence
@@ -533,6 +545,8 @@ public class BattleUIManager : MonoBehaviour
                     
                     string winner = response.winner == "player" ? "Victory!" : "Defeat!";
                     AnimateBattleText($"Battle Ended - {winner}");
+                    
+                    inActiveBattle = false; // Re-enable auto-updates after battle
                     
                     // Hide battle panel after a delay
                     Invoke("HideBattlePanel", 3f);
@@ -1106,6 +1120,77 @@ public class BattleUIManager : MonoBehaviour
         
         // Ensure full opacity
         battleStatusText.color = originalColor;
+    }
+    
+    // Process enemy turn with delay
+    private void ProcessEnemyTurnDelayed()
+    {
+        if (currentBattle != null && currentBattle.isActive && currentBattle.currentTurn == "enemy")
+        {
+            #if UNITY_WEBGL && !UNITY_EDITOR
+                Debug.Log("Processing enemy turn for battle: " + currentBattle.battleId);
+                ProcessEnemyTurn(currentBattle.battleId);
+            #else
+                Debug.Log("Enemy turn processing only works in WebGL builds");
+            #endif
+        }
+    }
+    
+    // Called from JavaScript when enemy turn completes
+    public void OnEnemyTurn(string jsonData) 
+    {
+        Debug.Log("*** ENEMY TURN COMPLETED ***");
+        Debug.Log("Enemy turn data: " + jsonData);
+        
+        try 
+        {
+            var response = JsonUtility.FromJson<BattleActionResponse>(jsonData);
+            
+            if (response.status == "success" && response.battleState != null) 
+            {
+                currentBattle = response.battleState;
+                
+                // Update PlayerManager with new player data after enemy turn
+                if (playerManager != null && currentBattle.player != null) 
+                {
+                    playerManager.currentPlayer = currentBattle.player;
+                    Debug.Log($"After enemy turn - Player HP: {currentBattle.player.stats.hitPoints}/{currentBattle.player.stats.maxHitPoints}");
+                }
+                
+                UpdateUI();
+                
+                // Show enemy turn animation
+                AnimateBattleText("Enemy Turn Complete");
+                
+                // Re-enable action buttons if it's player's turn again
+                if (!response.battleEnded && currentBattle.isActive && currentBattle.currentTurn == "player")
+                {
+                    SetActionButtonsEnabled(true);
+                    Debug.Log("Back to player turn - buttons enabled");
+                }
+                
+                if (response.battleEnded) 
+                {
+                    Debug.Log($"Battle ended after enemy turn! Winner: {response.winner}");
+                    string winner = response.winner == "player" ? "Victory!" : "Defeat!";
+                    AnimateBattleText($"Battle Ended - {winner}");
+                    
+                    inActiveBattle = false; // Re-enable auto-updates after battle
+                    
+                    Invoke("HideBattlePanel", 3f);
+                }
+            }
+        }
+        catch (System.Exception e) 
+        {
+            Debug.LogError("Error parsing enemy turn data: " + e.Message);
+        }
+    }
+    
+    // Public method for other scripts to check if battle is active
+    public bool IsInActiveBattle()
+    {
+        return inActiveBattle && currentBattle != null && currentBattle.isActive;
     }
 
 }

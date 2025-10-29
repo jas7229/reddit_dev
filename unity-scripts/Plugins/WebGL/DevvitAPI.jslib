@@ -207,6 +207,33 @@ mergeInto(LibraryManager.library, {
         }).catch(error => {
             console.error('[JSLib] Error in battle action:', error);
         });
+    },
+
+    ProcessEnemyTurn: function(battleIdPtr) {  
+        const battleId = UTF8ToString(battleIdPtr);
+        
+        console.log('[JSLib] Processing enemy turn for:', battleId);
+        
+        processEnemyTurn(battleId).then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Enemy turn result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['BattleUIManager', 'PlayerManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnEnemyTurn', result);
+                        console.log(`[JSLib] Enemy turn message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error in enemy turn:', error);
+        });
     }
 
 });

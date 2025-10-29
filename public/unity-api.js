@@ -240,6 +240,32 @@ window.UnityDevvitAPI = {
         }
     },
 
+    async processEnemyTurn(battleId) {
+        try {
+            console.log('[Unity API] Processing enemy turn for battle:', battleId);
+            const response = await fetch('/api/battle/enemy-turn', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ battleId })
+            });
+
+            const data = await response.json();
+            console.log('[Unity API] Enemy turn result:', data);
+
+            // Call Unity callback if successful
+            if (data.status === 'success' && window.unityInstance) {
+                window.unityInstance.SendMessage('BattleUIManager', 'OnEnemyTurn', JSON.stringify(data));
+            }
+
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Error processing enemy turn:', error);
+            return JSON.stringify({ status: 'error', message: error.message });
+        }
+    },
+
     // Log message to browser console (useful for debugging)
     log(message) {
         console.log('[Unity]', message);
@@ -283,6 +309,7 @@ window.BattleAction = function (battleId, action) {
     return window.UnityDevvitAPI.battleAction(battleId, action);
 };
 window.getBattle = window.UnityDevvitAPI.getBattle;
+window.processEnemyTurn = window.UnityDevvitAPI.processEnemyTurn;
 
 // Leaderboard function
 window.getLeaderboard = window.UnityDevvitAPI.getLeaderboard;

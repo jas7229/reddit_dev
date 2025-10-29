@@ -478,9 +478,57 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
   console.log(`[Battle] Player HP after: ${battle.player.stats.hitPoints}/${battle.player.stats.maxHitPoints}`);
   console.log(`[Battle] Enemy HP after: ${battle.enemy.stats.hitPoints}/${battle.enemy.stats.maxHitPoints}`);
   
-  // SIMPLE HP BUG FIX: Only process player turn, skip enemy turn
+  // Check if enemy is defeated after player turn
+  if (battle.enemy.stats.hitPoints <= 0) {
+    console.log(`[Battle] Enemy defeated! Player wins!`);
+    battle.isActive = false;
+    battle.winner = 'player';
+    results.battleEnded = true;
+    results.winner = 'player';
+    
+    // Calculate rewards
+    const expGain = battle.enemy.stats.level * 25;
+    const goldGain = battle.enemy.stats.level * 15;
+    
+    results.rewards = {
+      experience: expGain,
+      gold: goldGain,
+      levelUp: false
+    };
+    
+    // Update battles won counter for leaderboard
+    const playerUsername = battle.player.username;
+    const battlesWonKey = `battles_won:${playerUsername}`;
+    const currentWins = await redis.get(battlesWonKey);
+    const newWins = currentWins ? parseInt(currentWins) + 1 : 1;
+    await updatePlayerLeaderboard(playerUsername, newWins);
+    
+    // Check for level up
+    const newExp = battle.player.stats.experience + expGain;
+    if (newExp >= battle.player.stats.experienceToNext) {
+      battle.player.stats.level += 1;
+      battle.player.stats.experience = newExp - battle.player.stats.experienceToNext;
+      battle.player.stats.experienceToNext = battle.player.stats.level * 100;
+      battle.player.stats.maxHitPoints += 20;
+      battle.player.stats.hitPoints = battle.player.stats.maxHitPoints; // Full heal on level up
+      battle.player.stats.maxSpecialPoints += 5;
+      battle.player.stats.specialPoints = battle.player.stats.maxSpecialPoints;
+      battle.player.stats.attack += 3;
+      battle.player.stats.defense += 2;
+      battle.player.stats.skillPoints += 1;
+      results.rewards.levelUp = true;
+    } else {
+      battle.player.stats.experience = newExp;
+    }
+    
+    battle.player.stats.gold += goldGain;
+    battle.currentTurn = null; // Battle over
+  } else {
+    // Enemy still alive, switch to enemy turn
+    battle.currentTurn = 'enemy';
+  }
+  
   battle.turnNumber += 1;
-  battle.currentTurn = battle.isActive ? 'player' : null; // Keep it as player turn
   
   await redis.set(battleKey, JSON.stringify(battle));
   
@@ -1085,6 +1133,109 @@ router.get('/api/battle/:battleId', async (req, res): Promise<void> => {
   } catch (error) {
     console.error('[Server] Error getting battle:', error);
     res.status(500).json({ status: 'error', message: 'Failed to get battle' });
+  }
+});
+
+// New endpoint for processing enemy turns
+router.post('/api/battle/enemy-turn', async (req, res): Promise<void> => {
+  try {
+    const { battleId } = req.body;
+    
+    if (!battleId) {
+      res.status(400).json({ status: 'error', message: 'Battle ID required' });
+      return;
+    }
+    
+    const battleKey = `battle:${battleId}`;
+    const battleData = await redis.get(battleKey);
+    
+    if (!battleData) {
+      res.status(404).json({ status: 'error', message: 'Battle not found' });
+      return;
+    }
+    
+    const battle = JSON.parse(battleData);
+    
+    if (!battle.isActive || battle.currentTurn !== 'enemy') {
+      res.json({
+        status: 'success',
+        battleState: battle,
+        message: 'Not enemy turn or battle not active'
+      });
+      return;
+    }
+    
+    // Process enemy turn
+    const enemyAction = getEnemyAction();
+    let enemyDamage = 0;
+    let enemyHealing = 0;
+    let enemyMessage = '';
+    
+    console.log(`[Battle] === ENEMY TURN START ===`);
+    console.log(`[Battle] Enemy action: ${enemyAction}`);
+    
+    if (enemyAction === 'heal') {
+      enemyHealing = Math.floor(battle.enemy.stats.maxHitPoints * 0.2);
+      battle.enemy.stats.hitPoints = Math.min(
+        battle.enemy.stats.maxHitPoints,
+        battle.enemy.stats.hitPoints + enemyHealing
+      );
+      enemyMessage = `${battle.enemy.username} healed for ${enemyHealing} HP!`;
+    } else if (enemyAction === 'defend') {
+      enemyMessage = `${battle.enemy.username} is defending!`;
+    } else {
+      enemyDamage = calculateDamage(battle.enemy, battle.player, enemyAction);
+      console.log(`[Battle] Enemy damage: ${enemyDamage}`);
+      
+      const playerHpBefore = battle.player.stats.hitPoints;
+      battle.player.stats.hitPoints = Math.max(0, battle.player.stats.hitPoints - enemyDamage);
+      console.log(`[Battle] Player HP: ${playerHpBefore} -> ${battle.player.stats.hitPoints}`);
+      
+      enemyMessage = `${battle.enemy.username} attacked for ${enemyDamage} damage!`;
+    }
+    
+    const enemyTurn = {
+      attacker: battle.enemy.username,
+      defender: battle.player.username,
+      action: enemyAction,
+      damage: enemyDamage,
+      healing: enemyHealing,
+      message: enemyMessage,
+      attackerHpAfter: battle.enemy.stats.hitPoints,
+      defenderHpAfter: battle.player.stats.hitPoints
+    };
+    
+    battle.battleLog.push(enemyTurn);
+    
+    // Check if player is defeated
+    let battleEnded = false;
+    let winner = null;
+    
+    if (battle.player.stats.hitPoints <= 0) {
+      battle.isActive = false;
+      battle.winner = 'enemy';
+      battleEnded = true;
+      winner = 'enemy';
+    } else {
+      // Back to player turn
+      battle.currentTurn = 'player';
+    }
+    
+    battle.turnNumber += 1;
+    
+    await redis.set(battleKey, JSON.stringify(battle));
+    
+    res.json({
+      status: 'success',
+      battleState: battle,
+      enemyTurn: enemyTurn,
+      battleEnded: battleEnded,
+      winner: winner
+    });
+    
+  } catch (error) {
+    console.error('[Server] Error processing enemy turn:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to process enemy turn' });
   }
 });
 
