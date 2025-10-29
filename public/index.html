@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity Web Player | RedditTest1</title>
+    <title>Avatar Arena | Unity Web Player</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
     <style>
@@ -57,8 +57,7 @@
       }
       
       #unity-logo {
-        margin: 10px auto !important;
-        display: block !important;
+        display: none !important;
       }
       
       #unity-progress-bar-empty {
@@ -116,6 +115,33 @@
       #unity-fullscreen-button:hover {
         background: rgba(255, 255, 255, 1);
       }
+      
+      /* Hide any Unity logos that might appear */
+      .unity-logo, 
+      [class*="unity-logo"],
+      [id*="unity-logo"] img {
+        display: none !important;
+      }
+      
+      /* Make sure our custom logo looks great */
+      #custom-logo {
+        z-index: 1000;
+      }
+      
+      /* Traditional left-to-right progress bar */
+      #unity-progress-bar-container {
+        position: relative !important;
+      }
+      
+      #unity-progress-bar-empty {
+        display: none !important;
+      }
+      
+      #unity-progress-bar-full {
+        display: block !important;
+        position: relative !important;
+        transform-origin: left center !important;
+      }
     </style>
   </head>
   <body>
@@ -124,7 +150,7 @@
       <div id="unity-loading-bar">
         <div id="custom-loading-content">
           <div style="text-align: center; margin-bottom: 20px;">
-            <h2 style="color: #FFD700; margin: 0; font-family: Arial, sans-serif;">⚔️ Reddit Battler</h2>
+            <h2 style="color: #FFD700; margin: 0; font-family: Arial, sans-serif;">⚔️ Avatar Arena</h2>
             <p style="color: #FFF; margin: 5px 0; font-size: 14px;">Loading your epic adventure...</p>
           </div>
           
@@ -133,9 +159,14 @@
             <img id="user-avatar-img" style="width: 60px; height: 60px; border-radius: 50%; border: 2px solid #FFD700;" />
             <div id="user-name" style="color: #FFD700; font-size: 12px; text-align: center; margin-top: 5px;"></div>
           </div>
-          <div id="unity-logo"></div>
-          <div id="unity-progress-bar-empty" style="background: rgba(255,255,255,0.2); border-radius: 10px; height: 20px; margin: 10px 0;">
-            <div id="unity-progress-bar-full" style="background: linear-gradient(90deg, #FFD700, #FFA500); border-radius: 10px; height: 100%; transition: width 0.3s ease;"></div>
+          <!-- Custom logo container (separate from Unity's logo) -->
+          <div id="custom-logo" style="margin: 10px auto; text-align: center;">
+            <img src="ArenaIcon.png" alt="Avatar Arena" style="width: 80px; height: 80px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+          </div>
+          <div id="unity-logo" style="display: none;"></div>
+          <div id="unity-progress-bar-container" style="width: 280px; margin: 15px auto; background: rgba(0,0,0,0.3); border-radius: 12px; height: 20px; overflow: hidden; border: 1px solid rgba(255,215,0,0.5);">
+            <div id="unity-progress-bar-empty" style="display: none;"></div>
+            <div id="unity-progress-bar-full" style="background: linear-gradient(90deg, #FFD700, #FFA500); height: 100%; width: 0%; transition: width 0.3s ease; box-shadow: 0 0 8px rgba(255,215,0,0.6); border-radius: 0;"></div>
           </div>
           <div id="loading-tips" style="text-align: center; color: #CCC; font-size: 12px; margin-top: 10px;">
             <p id="loading-tip-text">Tip: Use special attacks to deal extra damage!</p>
@@ -145,12 +176,12 @@
       <div id="unity-warning"></div>
       <div id="unity-footer">
         <div id="unity-fullscreen-button">⛶ Fullscreen</div>
-        <div id="unity-build-title" style="color: #FFD700; font-weight: bold;">⚔️ Reddit Battler</div>
+        <div id="unity-build-title" style="color: #FFD700; font-weight: bold;">⚔️ Avatar Arena</div>
       </div>
     </div>
 
     <!-- Test Panel for API Testing -->
-    <div id="test-panel" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; max-width: 300px; z-index: 2000;">
+    <div id="test-panel" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; max-width: 300px; z-index: 2000; display: none;">
       <div style="font-weight: bold; margin-bottom: 10px;">🧪 API Test Panel</div>
       
       <button id="test-get-player" style="margin: 2px; padding: 5px; font-size: 11px;">Get Player</button>
@@ -174,6 +205,19 @@
       <button id="test-special" style="margin: 1px; padding: 3px; font-size: 10px;">Special</button>
       <button id="test-heal" style="margin: 1px; padding: 3px; font-size: 10px;">Heal</button>
       <br>
+      <div style="margin: 5px 0; font-size: 10px;">🏆 Leaderboard:</div>
+      <button id="test-leaderboard" style="margin: 1px; padding: 3px; font-size: 10px;">Get Leaderboard</button>
+      <br>
+      <div style="margin: 5px 0; font-size: 10px;">⚔️ Battle Preview:</div>
+      <button id="test-preview-easy" style="margin: 1px; padding: 3px; font-size: 10px; background: #4CAF50; color: white;">Easy Enemy</button>
+      <button id="test-preview-medium" style="margin: 1px; padding: 3px; font-size: 10px; background: #FF9800; color: white;">Medium Enemy</button>
+      <button id="test-preview-hard" style="margin: 1px; padding: 3px; font-size: 10px; background: #f44336; color: white;">Hard Enemy</button>
+      <br>
+      <div style="margin: 5px 0; font-size: 10px;">🔄 Reset:</div>
+      <button id="test-reset-player" style="margin: 1px; padding: 3px; font-size: 10px; background: #ff6b6b; color: white;">Reset Stats</button>
+      <button id="test-reset-confirm" style="margin: 1px; padding: 3px; font-size: 10px; background: #ff3333; color: white; display: none;">CONFIRM RESET</button>
+      <button id="test-reset-cancel" style="margin: 1px; padding: 3px; font-size: 10px; background: #666; color: white; display: none;">Cancel</button>
+      <br>
       <button id="test-toggle-panel" style="margin: 2px; padding: 5px; font-size: 11px;">Hide Panel</button>
       
       <div id="test-results" style="margin-top: 10px; max-height: 200px; overflow-y: auto; background: rgba(255,255,255,0.1); padding: 5px; border-radius: 3px;">
@@ -181,8 +225,8 @@
       </div>
     </div>
     
-    <!-- Small reopen button (hidden by default) -->
-    <div id="test-reopen-btn" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 8px; border-radius: 50%; font-family: monospace; font-size: 14px; cursor: pointer; z-index: 2001; display: none; width: 30px; height: 30px; text-align: center; line-height: 14px;">
+    <!-- Small reopen button (shown by default since panel is hidden) -->
+    <div id="test-reopen-btn" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 8px; border-radius: 50%; font-family: monospace; font-size: 14px; cursor: pointer; z-index: 2001; display: block; width: 30px; height: 30px; text-align: center; line-height: 14px;">
       🧪
     </div>
     

@@ -29,11 +29,17 @@ export type SaveScoreResponse = {
 export type LeaderboardEntry = {
   username: string;
   score: number;
+  level: number;
+  avatarUrl: string;
+  battlesWon?: number;
+  lastPlayed?: string;
 };
 
 export type LeaderboardResponse = {
   status: 'success' | 'error';
   leaderboard?: LeaderboardEntry[];
+  playerRank?: number;
+  totalPlayers?: number;
   message?: string;
 };
 
@@ -86,6 +92,26 @@ export type PlayerUpdateResponse = {
 export type EnemyResponse = {
   status: 'success' | 'error';
   enemy?: EnemyCharacter;
+  message?: string;
+};
+
+export type BattleDifficulty = 'easy' | 'medium' | 'hard';
+
+export type EnemyPreviewRequest = {
+  difficulty?: BattleDifficulty;
+  reroll?: boolean;
+};
+
+export type EnemyPreviewResponse = {
+  status: 'success' | 'error';
+  enemy?: EnemyCharacter;
+  difficulty?: BattleDifficulty;
+  levelDifference?: number;
+  expectedRewards?: {
+    baseExperience: number;
+    baseGold: number;
+    riskLevel: string;
+  };
   message?: string;
 };
 

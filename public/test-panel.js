@@ -54,6 +54,110 @@ async function testGetEnemy() {
     }
 }
 
+async function testGetLeaderboard() {
+    try {
+        logTestResult('Getting Leaderboard', 'Loading...');
+        const result = await window.getLeaderboard();
+        const data = JSON.parse(result);
+        
+        if (data.status === 'success') {
+            logTestResult('Leaderboard Result', {
+                totalPlayers: data.totalPlayers,
+                playerRank: data.playerRank,
+                topPlayers: data.leaderboard?.slice(0, 5) // Show top 5
+            });
+        } else {
+            logTestResult('Leaderboard Error', data);
+        }
+    } catch (error) {
+        logTestResult('Leaderboard Error', error.message);
+    }
+}
+
+async function testEnemyPreview(difficulty) {
+    try {
+        logTestResult(`Getting ${difficulty} Enemy Preview`, 'Loading...');
+        const result = await window.getEnemyPreview(difficulty, false);
+        const data = JSON.parse(result);
+        
+        if (data.status === 'success') {
+            logTestResult(`${difficulty} Enemy Preview`, {
+                enemy: data.enemy.username,
+                level: data.enemy.stats.level,
+                levelDiff: data.levelDifference,
+                rewards: data.expectedRewards,
+                stats: {
+                    hp: `${data.enemy.stats.hitPoints}/${data.enemy.stats.maxHitPoints}`,
+                    attack: data.enemy.stats.attack,
+                    defense: data.enemy.stats.defense
+                }
+            });
+        } else {
+            logTestResult('Enemy Preview Error', data);
+        }
+    } catch (error) {
+        logTestResult('Enemy Preview Error', error.message);
+    }
+}
+
+async function testResetPlayer() {
+    try {
+        logTestResult('Resetting Player Stats', 'Resetting to defaults...');
+        console.log('[Test Panel] Calling resetPlayer...');
+        const result = await window.resetPlayer();
+        console.log('[Test Panel] Reset result:', result);
+        const data = JSON.parse(result);
+        console.log('[Test Panel] Parsed reset data:', data);
+        
+        if (data.status === 'success') {
+            logTestResult('Reset Success', {
+                message: data.message,
+                newStats: {
+                    level: data.playerCharacter.stats.level,
+                    gold: data.playerCharacter.stats.gold,
+                    hp: `${data.playerCharacter.stats.hitPoints}/${data.playerCharacter.stats.maxHitPoints}`,
+                    attack: data.playerCharacter.stats.attack,
+                    defense: data.playerCharacter.stats.defense
+                }
+            });
+            
+            // Force refresh player data from server
+            setTimeout(async () => {
+                try {
+                    if (typeof window.getPlayer !== 'function') {
+                        console.error('[Test Panel] getPlayer function not available');
+                        refreshPlayerDisplay();
+                        return;
+                    }
+                    
+                    const freshPlayerResult = await window.getPlayer();
+                    const freshPlayerData = JSON.parse(freshPlayerResult);
+                    console.log('[Test Panel] Fresh player data after reset:', freshPlayerData);
+                    
+                    // Refresh the display with fresh data
+                    refreshPlayerDisplay();
+                    
+                    // Notify Unity with fresh data
+                    try {
+                        SendMessage('PlayerManager', 'OnPlayerDataUpdated', freshPlayerResult);
+                        console.log('[Test Panel] Notified Unity about fresh player data');
+                    } catch (e) {
+                        console.log('[Test Panel] Could not notify Unity:', e.message);
+                    }
+                } catch (error) {
+                    console.error('[Test Panel] Error getting fresh player data:', error);
+                    // Fallback to original refresh
+                    refreshPlayerDisplay();
+                }
+            }, 500); // Wait 500ms for server to complete the reset
+        } else {
+            logTestResult('Reset Failed', data);
+        }
+    } catch (error) {
+        logTestResult('Reset Error', error.message);
+    }
+}
+
 async function testUpdatePlayer() {
     try {
         logTestResult('Updating Player', 'Loading...');
@@ -236,6 +340,14 @@ async function testBattleAction(action) {
 window.addEventListener('DOMContentLoaded', () => {
     // Wait a bit for other scripts to load
     setTimeout(() => {
+        // Check if Unity API functions are available
+        if (typeof window.getPlayer !== 'function') {
+            console.error('[Test Panel] Unity API functions not loaded yet, retrying...');
+            setTimeout(arguments.callee, 1000); // Retry in 1 second
+            return;
+        }
+        
+        console.log('[Test Panel] Unity API functions loaded successfully');
         const getPlayerBtn = document.getElementById('test-get-player');
         const getEnemyBtn = document.getElementById('test-get-enemy');
         const updatePlayerBtn = document.getElementById('test-update-player');
@@ -253,6 +365,20 @@ window.addEventListener('DOMContentLoaded', () => {
         const defendBtn = document.getElementById('test-defend');
         const specialBtn = document.getElementById('test-special');
         const healBtn = document.getElementById('test-heal');
+        
+        // Leaderboard button
+        const leaderboardBtn = document.getElementById('test-leaderboard');
+        
+        // Enemy preview buttons
+        const previewEasyBtn = document.getElementById('test-preview-easy');
+        const previewMediumBtn = document.getElementById('test-preview-medium');
+        const previewHardBtn = document.getElementById('test-preview-hard');
+        
+        // Reset buttons
+        const resetBtn = document.getElementById('test-reset-player');
+        const resetConfirmBtn = document.getElementById('test-reset-confirm');
+        const resetCancelBtn = document.getElementById('test-reset-cancel');
+        console.log('[Test Panel] Looking for buttons:', {previewEasyBtn, previewMediumBtn, previewHardBtn, resetBtn});
         
         // Reopen button
         const reopenBtn = document.getElementById('test-reopen-btn');
@@ -276,6 +402,54 @@ window.addEventListener('DOMContentLoaded', () => {
         if (defendBtn) defendBtn.addEventListener('click', () => testBattleAction('defend'));
         if (specialBtn) specialBtn.addEventListener('click', () => testBattleAction('special'));
         if (healBtn) healBtn.addEventListener('click', () => testBattleAction('heal'));
+        
+        // Enemy preview button event listeners
+        if (previewEasyBtn) previewEasyBtn.addEventListener('click', () => testEnemyPreview('easy'));
+        if (previewMediumBtn) previewMediumBtn.addEventListener('click', () => testEnemyPreview('medium'));
+        if (previewHardBtn) previewHardBtn.addEventListener('click', () => testEnemyPreview('hard'));
+        
+        // Leaderboard button event listener
+        if (leaderboardBtn) leaderboardBtn.addEventListener('click', testGetLeaderboard);
+        
+        // Reset button event listeners (custom confirmation)
+        if (resetBtn) {
+            console.log('[Test Panel] Reset button found, adding event listener');
+            resetBtn.addEventListener('click', () => {
+                console.log('[Test Panel] Reset button clicked!');
+                // Show confirmation buttons
+                resetBtn.style.display = 'none';
+                if (resetConfirmBtn) resetConfirmBtn.style.display = 'inline-block';
+                if (resetCancelBtn) resetCancelBtn.style.display = 'inline-block';
+                logTestResult('Reset Confirmation', 'Click CONFIRM RESET to proceed or Cancel to abort');
+            });
+        } else {
+            console.error('[Test Panel] Reset button not found! ID: test-reset-player');
+        }
+        
+        // Confirm reset button
+        if (resetConfirmBtn) {
+            resetConfirmBtn.addEventListener('click', () => {
+                console.log('[Test Panel] Reset confirmed!');
+                // Hide confirmation buttons
+                resetBtn.style.display = 'inline-block';
+                resetConfirmBtn.style.display = 'none';
+                resetCancelBtn.style.display = 'none';
+                // Execute reset
+                testResetPlayer();
+            });
+        }
+        
+        // Cancel reset button
+        if (resetCancelBtn) {
+            resetCancelBtn.addEventListener('click', () => {
+                console.log('[Test Panel] Reset cancelled');
+                // Hide confirmation buttons
+                resetBtn.style.display = 'inline-block';
+                resetConfirmBtn.style.display = 'none';
+                resetCancelBtn.style.display = 'none';
+                logTestResult('Reset Cancelled', 'Player stats were not reset');
+            });
+        }
         
         // Reopen button event listener
         if (reopenBtn) reopenBtn.addEventListener('click', toggleTestPanel);

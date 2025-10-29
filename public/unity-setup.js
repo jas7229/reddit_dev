@@ -75,7 +75,7 @@ function initializeDevvitContext() {
         
         // Find the first non-null avatar
         window.userAvatar = possibleAvatars.find(url => url && url.trim() !== '') || 
-                           "https://www.redditstatic.com/avatars/avatar_default_01_0DD3BB.png";
+                           "https://i.redd.it/snoovatar/avatars/nftv2_bmZ0X2VpcDE1NToxMzdfNDhhM2EwNDI0Nzg0N2VkMzUwOGI4YjRjZjdlNzIwMjViNDY5NTcwMl8z_rare_2ac1bb56-63fc-4837-8cde-c443fb602a3b.png";
         
         // Set username for Unity to access
         window.username = ctx.user.username || ctx.user.name || "RedditUser";
@@ -124,7 +124,7 @@ async function initializeFromServer() {
         const data = await response.json();
         
         if (data.status === 'success') {
-            window.userAvatar = data.avatarUrl || "https://www.redditstatic.com/avatars/avatar_default_01_0DD3BB.png";
+            window.userAvatar = data.avatarUrl || "https://i.redd.it/snoovatar/avatars/nftv2_bmZ0X2VpcDE1NToxMzdfNDhhM2EwNDI0Nzg0N2VkMzUwOGI4YjRjZjdlNzIwMjViNDY5NTcwMl8z_rare_2ac1bb56-63fc-4837-8cde-c443fb602a3b.png";
             window.username = data.username || "RedditUser";
             
             console.log("[Devvit] Server data loaded:", {
@@ -136,7 +136,7 @@ async function initializeFromServer() {
     } catch (error) {
         console.error("[Devvit] Failed to get server data:", error);
         // Use fallbacks
-        window.userAvatar = "https://www.redditstatic.com/avatars/avatar_default_01_0DD3BB.png";
+        window.userAvatar = "https://i.redd.it/snoovatar/avatars/nftv2_bmZ0X2VpcDE1NToxMzdfNDhhM2EwNDI0Nzg0N2VkMzUwOGI4YjRjZjdlNzIwMjViNDY5NTcwMl8z_rare_2ac1bb56-63fc-4837-8cde-c443fb602a3b.png";
         window.username = "TestUser";
     }
 }
