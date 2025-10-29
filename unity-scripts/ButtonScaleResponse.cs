@@ -12,18 +12,43 @@ public class ButtonScaleResponse : MonoBehaviour, IPointerDownHandler, IPointerU
     private Vector3 originalScale;
     private bool isPressed = false;
     private Coroutine scaleCoroutine;
+    private Button button;
     
     void Start()
     {
         originalScale = transform.localScale;
+        button = GetComponent<Button>();
+        
+        // Disable Unity's built-in color transitions to prevent conflicts
+        if (button != null)
+        {
+            ColorBlock colors = button.colors;
+            colors.colorMultiplier = 1f;
+            colors.fadeDuration = 0f; // Disable color fade
+            button.colors = colors;
+        }
+    }
+    
+    void Update()
+    {
+        // Safety check: if button becomes non-interactable while pressed, reset
+        if (isPressed && button != null && !button.interactable)
+        {
+            ForceReset();
+        }
     }
     
     public void OnPointerDown(PointerEventData eventData)
     {
+        if (button != null && !button.interactable) return;
+        
         if (!isPressed)
         {
             isPressed = true;
             AnimateScale(originalScale * pressedScale);
+            
+            // Start auto-reset timer as safety measure
+            StartCoroutine(AutoResetCoroutine());
         }
     }
     
@@ -43,6 +68,18 @@ public class ButtonScaleResponse : MonoBehaviour, IPointerDownHandler, IPointerU
             isPressed = false;
             AnimateScale(originalScale);
         }
+    }
+    
+    // Force reset the button state (useful for debugging)
+    public void ForceReset()
+    {
+        isPressed = false;
+        if (scaleCoroutine != null)
+        {
+            StopCoroutine(scaleCoroutine);
+            scaleCoroutine = null;
+        }
+        transform.localScale = originalScale;
     }
     
     private void AnimateScale(Vector3 targetScale)
@@ -78,12 +115,27 @@ public class ButtonScaleResponse : MonoBehaviour, IPointerDownHandler, IPointerU
     void OnDisable()
     {
         // Reset scale when disabled
-        if (scaleCoroutine != null)
+        ForceReset();
+    }
+    
+    void OnEnable()
+    {
+        // Ensure we start in the correct state
+        if (originalScale == Vector3.zero)
         {
-            StopCoroutine(scaleCoroutine);
-            scaleCoroutine = null;
+            originalScale = transform.localScale;
         }
-        transform.localScale = originalScale;
-        isPressed = false;
+        ForceReset();
+    }
+    
+    // Coroutine to automatically reset if stuck pressed for too long
+    private IEnumerator AutoResetCoroutine()
+    {
+        yield return new WaitForSeconds(2f); // Reset after 2 seconds if still pressed
+        if (isPressed)
+        {
+            Debug.LogWarning($"Button {gameObject.name} was stuck pressed - auto-resetting");
+            ForceReset();
+        }
     }
 }

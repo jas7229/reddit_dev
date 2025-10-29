@@ -459,7 +459,8 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
   console.log(`[Battle] Enemy HP before: ${battle.enemy.stats.hitPoints}/${battle.enemy.stats.maxHitPoints}`);
   
   // SP charging system: gain SP from regular actions, lose SP from special attacks
-  const spGainPerAction = 3; // SP gained per regular action
+  const spGainPercent = 0.2; // Gain 20% of max SP per action
+  const spGainPerAction = Math.max(1, Math.floor(battle.player.stats.maxSpecialPoints * spGainPercent));
   const spCostSpecial = Math.floor(battle.player.stats.maxSpecialPoints * 0.8); // Special costs 80% of max SP
   
   if (playerAction === 'heal') {
@@ -1211,7 +1212,8 @@ router.post('/api/battle/enemy-turn', async (req, res): Promise<void> => {
     let enemyDamage = 0;
     let enemyHealing = 0;
     let enemyMessage = '';
-    const spGainPerAction = 3; // Same SP gain as player
+    const spGainPercent = 0.2; // Same 20% gain as player
+    const spGainPerAction = Math.max(1, Math.floor(battle.enemy.stats.maxSpecialPoints * spGainPercent));
     const spCostSpecial = Math.floor(battle.enemy.stats.maxSpecialPoints * 0.8);
     
     console.log(`[Battle] === ENEMY TURN START ===`);

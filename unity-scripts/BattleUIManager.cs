@@ -46,6 +46,17 @@ public class BattleUIManager : MonoBehaviour
     public Image playerTurnIndicator; // Circle/panel behind player level
     public Image enemyTurnIndicator; // Circle/panel behind enemy level
     
+    [Header("Battle Results Screen")]
+    public GameObject battleResultsPanel; // Main results panel
+    public TextMeshProUGUI resultsTitle; // "VICTORY!" or "DEFEAT!"
+    public TextMeshProUGUI resultsSubtitle; // Enemy name defeated
+    public Image resultsEnemyAvatar; // Enemy avatar image
+    public TextMeshProUGUI expGainedText; // "+50 EXP"
+    public TextMeshProUGUI goldGainedText; // "+30 Gold"
+    public TextMeshProUGUI levelUpText; // "LEVEL UP!" (optional)
+    public Button continueButton; // "Continue" button
+    public Image resultsBackground; // Background panel for scaling animation
+    
     [Header("Battle Action Buttons")]
     public Button attackButton;
     public Button defendButton;
@@ -84,6 +95,11 @@ public class BattleUIManager : MonoBehaviour
     private Color inactiveTurnColor = new Color(0.5f, 0.5f, 0.5f, 0.3f); // Grey, semi-transparent
     private Color activeTurnColor = new Color(1f, 0.2f, 0.2f, 0.8f); // Red, more opaque
     private Color enemyTurnColor = new Color(1f, 0.6f, 0f, 0.8f); // Orange for enemy turn
+    
+    // Battle results colors
+    private Color victoryColor = new Color(0f, 1f, 0.2f, 1f); // Bright green
+    private Color defeatColor = new Color(1f, 0.2f, 0.2f, 1f); // Red
+    private Color levelUpColor = new Color(1f, 0.8f, 0f, 1f); // Gold
     
     // External function for processing enemy turns
     [DllImport("__Internal")]
@@ -494,6 +510,11 @@ public class BattleUIManager : MonoBehaviour
         if (currentBattle != null && currentBattle.isActive) 
         {
             lastPlayerAction = "attack"; // Store action for animation
+            
+            // Immediately disable all buttons to prevent button mashing
+            SetActionButtonsEnabled(false);
+            Debug.Log("Attack pressed - all buttons disabled immediately");
+            
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "attack");
             #endif
@@ -505,6 +526,11 @@ public class BattleUIManager : MonoBehaviour
         if (currentBattle != null && currentBattle.isActive) 
         {
             lastPlayerAction = "defend"; // Store action for animation
+            
+            // Immediately disable all buttons to prevent button mashing
+            SetActionButtonsEnabled(false);
+            Debug.Log("Defend pressed - all buttons disabled immediately");
+            
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "defend");
             #endif
@@ -516,6 +542,11 @@ public class BattleUIManager : MonoBehaviour
         if (currentBattle != null && currentBattle.isActive) 
         {
             lastPlayerAction = "special"; // Store action for animation
+            
+            // Immediately disable all buttons to prevent button mashing
+            SetActionButtonsEnabled(false);
+            Debug.Log("Special pressed - all buttons disabled immediately");
+            
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "special");
             #endif
@@ -527,6 +558,11 @@ public class BattleUIManager : MonoBehaviour
         if (currentBattle != null && currentBattle.isActive) 
         {
             lastPlayerAction = "heal"; // Store action for animation
+            
+            // Immediately disable all buttons to prevent button mashing
+            SetActionButtonsEnabled(false);
+            Debug.Log("Heal pressed - all buttons disabled immediately");
+            
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "heal");
             #endif
@@ -618,23 +654,10 @@ public class BattleUIManager : MonoBehaviour
                 {
                     Debug.Log($"Battle ended! Winner: {response.winner}");
                     
-                    if (response.rewards != null) 
-                    {
-                        Debug.Log($"Rewards: {response.rewards.experience} XP, {response.rewards.gold} Gold");
-                        
-                        if (response.rewards.levelUp) 
-                        {
-                            Debug.Log("LEVEL UP!");
-                        }
-                    }
-                    
-                    string winner = response.winner == "player" ? "Victory!" : "Defeat!";
-                    AnimateBattleText($"Battle Ended - {winner}");
+                    // Show battle results screen
+                    ShowBattleResults(response.winner, response.rewards);
                     
                     inActiveBattle = false; // Re-enable auto-updates after battle
-                    
-                    // Hide battle panel after a delay
-                    Invoke("HideBattlePanel", 3f);
                 }
             }
         }
@@ -1278,12 +1301,11 @@ public class BattleUIManager : MonoBehaviour
                 if (response.battleEnded) 
                 {
                     Debug.Log($"Battle ended after enemy turn! Winner: {response.winner}");
-                    string winner = response.winner == "player" ? "Victory!" : "Defeat!";
-                    AnimateBattleText($"Battle Ended - {winner}");
+                    
+                    // Show battle results screen
+                    ShowBattleResults(response.winner, response.rewards);
                     
                     inActiveBattle = false; // Re-enable auto-updates after battle
-                    
-                    Invoke("HideBattlePanel", 3f);
                 }
             }
         }
@@ -1297,6 +1319,268 @@ public class BattleUIManager : MonoBehaviour
     public bool IsInActiveBattle()
     {
         return inActiveBattle && currentBattle != null && currentBattle.isActive;
+    }
+    
+    // Show battle results screen with rewards
+    private void ShowBattleResults(string winner, BattleRewards rewards)
+    {
+        if (battleResultsPanel == null) 
+        {
+            Debug.LogWarning("Battle results panel not assigned!");
+            // Fallback to old behavior
+            string winnerText = winner == "player" ? "Victory!" : "Defeat!";
+            AnimateBattleText($"Battle Ended - {winnerText}");
+            Invoke("HideBattlePanel", 3f);
+            return;
+        }
+        
+        // Set up results content
+        bool isVictory = winner == "player";
+        
+        // Title and colors
+        if (resultsTitle != null)
+        {
+            resultsTitle.text = isVictory ? "VICTORY!" : "DEFEAT!";
+            resultsTitle.color = isVictory ? victoryColor : defeatColor;
+        }
+        
+        // Subtitle (enemy name)
+        if (resultsSubtitle != null && currentBattle != null)
+        {
+            if (isVictory)
+            {
+                resultsSubtitle.text = $"Defeated {currentBattle.enemy.username}!";
+            }
+            else
+            {
+                resultsSubtitle.text = $"Defeated by {currentBattle.enemy.username}";
+            }
+        }
+        
+        // Copy enemy avatar to results screen
+        if (resultsEnemyAvatar != null && enemyAvatarImage != null && currentBattle != null)
+        {
+            // Copy the sprite and preserve aspect ratio
+            resultsEnemyAvatar.sprite = enemyAvatarImage.sprite;
+            resultsEnemyAvatar.color = Color.white; // Reset any battle effects
+            resultsEnemyAvatar.transform.localScale = Vector3.one; // Reset scale
+            
+            // For defeat, maybe make the enemy avatar slightly larger/more prominent
+            if (!isVictory)
+            {
+                resultsEnemyAvatar.transform.localScale = Vector3.one * 1.1f;
+            }
+            
+            Debug.Log($"Copied enemy avatar for {currentBattle.enemy.username} to results screen");
+        }
+        
+        // Rewards (only show for victory)
+        if (isVictory && rewards != null)
+        {
+            if (expGainedText != null)
+            {
+                expGainedText.text = $"+{rewards.experience} EXP";
+                expGainedText.gameObject.SetActive(true);
+            }
+            
+            if (goldGainedText != null)
+            {
+                goldGainedText.text = $"+{rewards.gold} Gold";
+                goldGainedText.gameObject.SetActive(true);
+            }
+            
+            if (levelUpText != null)
+            {
+                if (rewards.levelUp)
+                {
+                    levelUpText.text = "LEVEL UP!";
+                    levelUpText.color = levelUpColor;
+                    levelUpText.gameObject.SetActive(true);
+                }
+                else
+                {
+                    levelUpText.gameObject.SetActive(false);
+                }
+            }
+        }
+        else
+        {
+            // Hide reward texts for defeat
+            if (expGainedText != null) expGainedText.gameObject.SetActive(false);
+            if (goldGainedText != null) goldGainedText.gameObject.SetActive(false);
+            if (levelUpText != null) levelUpText.gameObject.SetActive(false);
+        }
+        
+        // Disable battle buttons since battle is over
+        SetActionButtonsEnabled(false);
+        Debug.Log("Battle ended - all action buttons disabled");
+        
+        // Show results with scale-in animation
+        Debug.Log($"Showing battle results panel for {(isVictory ? "VICTORY" : "DEFEAT")}");
+        StartCoroutine(ShowResultsAnimation(isVictory));
+    }
+    
+    // Animate the results screen appearing
+    private System.Collections.IEnumerator ShowResultsAnimation(bool isVictory)
+    {
+        if (battleResultsPanel == null) yield break;
+        
+        // Start hidden and scaled down
+        Debug.Log("Activating battle results panel");
+        battleResultsPanel.SetActive(true);
+        
+        if (resultsBackground != null)
+        {
+            resultsBackground.transform.localScale = Vector3.zero;
+        }
+        
+        // Hide enemy avatar initially for dramatic reveal
+        if (resultsEnemyAvatar != null)
+        {
+            resultsEnemyAvatar.color = new Color(1f, 1f, 1f, 0f); // Transparent
+        }
+        
+        // Scale in animation
+        float duration = 0.5f;
+        float elapsed = 0f;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            
+            // Smooth scale-in with slight overshoot
+            float scale = Mathf.LerpUnclamped(0f, 1f, 
+                Mathf.SmoothStep(0f, 1.1f, progress));
+            
+            if (progress > 0.8f)
+            {
+                // Settle back to 1.0 in the last 20%
+                scale = Mathf.Lerp(1.1f, 1f, (progress - 0.8f) / 0.2f);
+            }
+            
+            if (resultsBackground != null)
+            {
+                resultsBackground.transform.localScale = Vector3.one * scale;
+            }
+            
+            yield return null;
+        }
+        
+        // Ensure final scale is exactly 1
+        if (resultsBackground != null)
+        {
+            resultsBackground.transform.localScale = Vector3.one;
+        }
+        
+        // Animate enemy avatar appearing
+        if (resultsEnemyAvatar != null)
+        {
+            yield return StartCoroutine(AnimateEnemyAvatarReveal(isVictory));
+        }
+        
+        // Enable continue button
+        if (continueButton != null)
+        {
+            continueButton.interactable = true;
+        }
+    }
+    
+    // Animate the enemy avatar appearing in results
+    private System.Collections.IEnumerator AnimateEnemyAvatarReveal(bool isVictory)
+    {
+        if (resultsEnemyAvatar == null) yield break;
+        
+        float duration = 0.4f;
+        float elapsed = 0f;
+        
+        // Start transparent
+        Color targetColor = Color.white;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            
+            // Fade in
+            float alpha = Mathf.Lerp(0f, 1f, progress);
+            resultsEnemyAvatar.color = new Color(targetColor.r, targetColor.g, targetColor.b, alpha);
+            
+            // For victory, add a subtle pulse effect
+            if (isVictory)
+            {
+                float pulse = 1f + (Mathf.Sin(progress * Mathf.PI * 3) * 0.1f);
+                resultsEnemyAvatar.transform.localScale = Vector3.one * pulse;
+            }
+            
+            yield return null;
+        }
+        
+        // Final state
+        resultsEnemyAvatar.color = targetColor;
+        
+        if (isVictory)
+        {
+            resultsEnemyAvatar.transform.localScale = Vector3.one;
+        }
+        else
+        {
+            // For defeat, keep the enemy slightly larger
+            resultsEnemyAvatar.transform.localScale = Vector3.one * 1.1f;
+        }
+    }
+    
+    // Called by continue button
+    public void OnContinueButtonPressed()
+    {
+        StartCoroutine(HideResultsAnimation());
+    }
+    
+    // Animate the results screen disappearing
+    private System.Collections.IEnumerator HideResultsAnimation()
+    {
+        if (battleResultsPanel == null) yield break;
+        
+        // Disable continue button
+        if (continueButton != null)
+        {
+            continueButton.interactable = false;
+        }
+        
+        // Scale out animation
+        float duration = 0.3f;
+        float elapsed = 0f;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            
+            float scale = Mathf.Lerp(1f, 0f, progress);
+            
+            if (resultsBackground != null)
+            {
+                resultsBackground.transform.localScale = Vector3.one * scale;
+            }
+            
+            yield return null;
+        }
+        
+        // Hide the panel
+        Debug.Log("Deactivating battle results panel");
+        battleResultsPanel.SetActive(false);
+        
+        // Hide battle panel
+        if (battlePanel != null)
+        {
+            battlePanel.SetActive(false);
+        }
+        
+        // Reset scale for next time
+        if (resultsBackground != null)
+        {
+            resultsBackground.transform.localScale = Vector3.one;
+        }
     }
 
     
