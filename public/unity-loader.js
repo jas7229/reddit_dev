@@ -48,10 +48,10 @@
 
     // Configure for mobile vs desktop
     if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device configuration
+        // Mobile device configuration - better viewport settings
         var meta = document.createElement('meta');
         meta.name = 'viewport';
-        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
+        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
         document.getElementsByTagName('head')[0].appendChild(meta);
         
         document.querySelector("#unity-container").className = "unity-mobile";
