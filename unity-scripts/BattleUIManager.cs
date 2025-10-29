@@ -42,6 +42,10 @@ public class BattleUIManager : MonoBehaviour
     public TextMeshProUGUI turnNumberText;
     public GameObject battlePanel; // Show/hide during battles
     
+    [Header("Turn Indicators")]
+    public Image playerTurnIndicator; // Circle/panel behind player level
+    public Image enemyTurnIndicator; // Circle/panel behind enemy level
+    
     [Header("Battle Action Buttons")]
     public Button attackButton;
     public Button defendButton;
@@ -58,6 +62,7 @@ public class BattleUIManager : MonoBehaviour
     private float lastUpdateTime;
     private BattleState currentBattle;
     private bool inActiveBattle = false; // Flag to prevent auto-updates during battle
+    private string lastPlayerAction = "attack"; // Track the last action for animations
     
     // Track loaded avatars to prevent unnecessary reloading
     private string loadedPlayerUsername = "";
@@ -74,6 +79,11 @@ public class BattleUIManager : MonoBehaviour
     private bool playerSpecialFlashing = false;
     private bool playerExperienceFlashing = false;
     private bool enemyHealthFlashing = false;
+    
+    // Turn indicator colors
+    private Color inactiveTurnColor = new Color(0.5f, 0.5f, 0.5f, 0.3f); // Grey, semi-transparent
+    private Color activeTurnColor = new Color(1f, 0.2f, 0.2f, 0.8f); // Red, more opaque
+    private Color enemyTurnColor = new Color(1f, 0.6f, 0f, 0.8f); // Orange for enemy turn
     
     // External function for processing enemy turns
     [DllImport("__Internal")]
@@ -100,6 +110,12 @@ public class BattleUIManager : MonoBehaviour
         {
             battlePanel.SetActive(false);
         }
+        
+        // Disable battle buttons initially (no battle active)
+        SetActionButtonsEnabled(false);
+        
+        // Initialize turn indicators (both inactive)
+        UpdateTurnIndicators(null);
         
         // Initial update
         UpdateUI();
@@ -344,6 +360,9 @@ public class BattleUIManager : MonoBehaviour
             {
                 turnNumberText.text = "";
             }
+            
+            // No battle - both indicators inactive
+            UpdateTurnIndicators(null);
             return;
         }
         
@@ -364,6 +383,68 @@ public class BattleUIManager : MonoBehaviour
         if (turnNumberText != null) 
         {
             turnNumberText.text = $"Turn {currentBattle.turnNumber}";
+        }
+        
+        // Update turn indicators
+        UpdateTurnIndicators(currentBattle.isActive ? currentBattle.currentTurn : null);
+    }
+    
+    private void UpdateTurnIndicators(string currentTurn)
+    {
+        // Update player turn indicator
+        if (playerTurnIndicator != null)
+        {
+            if (currentTurn == "player")
+            {
+                playerTurnIndicator.color = activeTurnColor;
+                // Optional: Add a subtle pulse animation
+                StartCoroutine(PulseTurnIndicator(playerTurnIndicator));
+            }
+            else
+            {
+                playerTurnIndicator.color = inactiveTurnColor;
+            }
+        }
+        
+        // Update enemy turn indicator  
+        if (enemyTurnIndicator != null)
+        {
+            if (currentTurn == "enemy")
+            {
+                enemyTurnIndicator.color = enemyTurnColor;
+                // Optional: Add a subtle pulse animation
+                StartCoroutine(PulseTurnIndicator(enemyTurnIndicator));
+            }
+            else
+            {
+                enemyTurnIndicator.color = inactiveTurnColor;
+            }
+        }
+    }
+    
+    private System.Collections.IEnumerator PulseTurnIndicator(Image indicator)
+    {
+        Color originalColor = indicator.color;
+        float duration = 1f;
+        float elapsed = 0f;
+        
+        while (elapsed < duration && indicator.color == originalColor)
+        {
+            elapsed += Time.deltaTime;
+            float alpha = Mathf.Lerp(originalColor.a, originalColor.a * 0.5f, 
+                (Mathf.Sin(elapsed * 4f) + 1f) / 2f);
+            
+            Color pulseColor = originalColor;
+            pulseColor.a = alpha;
+            indicator.color = pulseColor;
+            
+            yield return null;
+        }
+        
+        // Restore original color if still active
+        if (indicator.color.r == originalColor.r) // Check if still the same base color
+        {
+            indicator.color = originalColor;
         }
     }
     
@@ -413,6 +494,7 @@ public class BattleUIManager : MonoBehaviour
     {
         if (currentBattle != null && currentBattle.isActive) 
         {
+            lastPlayerAction = "attack"; // Store action for animation
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "attack");
             #endif
@@ -423,6 +505,7 @@ public class BattleUIManager : MonoBehaviour
     {
         if (currentBattle != null && currentBattle.isActive) 
         {
+            lastPlayerAction = "defend"; // Store action for animation
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "defend");
             #endif
@@ -433,6 +516,7 @@ public class BattleUIManager : MonoBehaviour
     {
         if (currentBattle != null && currentBattle.isActive) 
         {
+            lastPlayerAction = "special"; // Store action for animation
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "special");
             #endif
@@ -443,6 +527,7 @@ public class BattleUIManager : MonoBehaviour
     {
         if (currentBattle != null && currentBattle.isActive) 
         {
+            lastPlayerAction = "heal"; // Store action for animation
             #if UNITY_WEBGL && !UNITY_EDITOR
                 BattleAction(currentBattle.battleId, "heal");
             #endif
@@ -513,7 +598,8 @@ public class BattleUIManager : MonoBehaviour
                 // Only start animation sequence if not already playing
                 if (!isPlayingBattleAnimation)
                 {
-                    StartCoroutine(HandlePlayerAttackSequence(response.battleEnded));
+                    // Use the last player action for animations
+                    StartCoroutine(HandlePlayerActionSequence(lastPlayerAction, response.battleEnded));
                 }
                 else
                 {
@@ -559,30 +645,30 @@ public class BattleUIManager : MonoBehaviour
         }
     }
     
-    // Handle the complete player attack sequence
-    private System.Collections.IEnumerator HandlePlayerAttackSequence(bool battleEnded)
+    // Handle the complete player action sequence with action-specific animations
+    private System.Collections.IEnumerator HandlePlayerActionSequence(string playerAction, bool battleEnded)
     {
-        Debug.Log("*** PLAYER ATTACK SEQUENCE STARTED ***");
+        Debug.Log($"*** PLAYER {playerAction.ToUpper()} SEQUENCE STARTED ***");
         isPlayingBattleAnimation = true; // Disable auto-updates during animation
         
         // Disable action buttons during animations
         SetActionButtonsEnabled(false);
         
-        // 1. Player attacks (grow/pulse)
+        // 1. Player action animation (action-specific)
         if (playerAvatarImage != null)
         {
-            Debug.Log("Starting PLAYER attack animation");
-            yield return StartCoroutine(AttackAnimation(playerAvatarImage));
+            Debug.Log($"Starting PLAYER {playerAction} animation");
+            yield return StartCoroutine(GetPlayerActionAnimation(playerAction, playerAvatarImage));
         }
         
-        // 2. Enemy gets hurt (red flash/shake)  
-        if (enemyAvatarImage != null)
+        // 2. Enemy reaction (only for attacks)
+        if (enemyAvatarImage != null && (playerAction == "attack" || playerAction == "special"))
         {
-            Debug.Log("Starting ENEMY hurt animation");
-            yield return StartCoroutine(HurtAnimation(enemyAvatarImage));
+            Debug.Log($"Starting ENEMY reaction to {playerAction}");
+            yield return StartCoroutine(GetEnemyReactionAnimation(playerAction, enemyAvatarImage));
         }
         
-        Debug.Log($"Player attack sequence complete. Battle ended: {battleEnded}");
+        Debug.Log($"Player {playerAction} sequence complete. Battle ended: {battleEnded}");
         
         // 3. If battle isn't over, start enemy turn
         if (!battleEnded && currentBattle != null && currentBattle.isActive)
@@ -959,7 +1045,7 @@ public class BattleUIManager : MonoBehaviour
     // Debug method to manually trigger animations (for testing)
     public void TestPlayerAttack()
     {
-        StartCoroutine(HandlePlayerAttackSequence(false));
+        StartCoroutine(HandlePlayerActionSequence("attack", false));
     }
     
     // Force reload avatars (useful for debugging)
@@ -1192,6 +1278,216 @@ public class BattleUIManager : MonoBehaviour
     {
         return inActiveBattle && currentBattle != null && currentBattle.isActive;
     }
+
+    
+    // Get player action-specific animation
+    private System.Collections.IEnumerator GetPlayerActionAnimation(string action, Image avatarImage)
+    {
+        switch (action.ToLower())
+        {
+            case "attack":
+                yield return StartCoroutine(AttackAnimation(avatarImage));
+                break;
+            case "defend":
+                yield return StartCoroutine(DefendAnimation(avatarImage));
+                break;
+            case "heal":
+                yield return StartCoroutine(HealAnimation(avatarImage));
+                break;
+            case "special":
+                yield return StartCoroutine(SpecialAttackAnimation(avatarImage));
+                break;
+            default:
+                yield return StartCoroutine(AttackAnimation(avatarImage)); // Fallback
+                break;
+        }
+    }
+    
+    // Get enemy reaction animation
+    private System.Collections.IEnumerator GetEnemyReactionAnimation(string playerAction, Image enemyImage)
+    {
+        switch (playerAction.ToLower())
+        {
+            case "attack":
+                yield return StartCoroutine(HurtAnimation(enemyImage));
+                break;
+            case "special":
+                yield return StartCoroutine(SpecialHurtAnimation(enemyImage));
+                break;
+            default:
+                // No reaction for defend/heal
+                yield return null;
+                break;
+        }
+    }
+    
+    // Action-specific animations (AttackAnimation already exists above, using that one)
+    
+    private System.Collections.IEnumerator DefendAnimation(Image image)
+    {
+        // Grow slightly and turn white/shine
+        Vector3 originalScale = image.transform.localScale;
+        Color originalColor = image.color;
+        Color defendColor = Color.white;
+        
+        float duration = 0.5f;
+        float elapsed = 0f;
+        
+        // Grow and turn white
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            float scale = Mathf.Lerp(1f, 1.1f, progress);
+            Color currentColor = Color.Lerp(originalColor, defendColor, progress * 0.7f);
+            
+            image.transform.localScale = originalScale * scale;
+            image.color = currentColor;
+            yield return null;
+        }
+        
+        // Hold for a moment
+        yield return new WaitForSeconds(0.3f);
+        
+        // Return to normal
+        elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            float scale = Mathf.Lerp(1.1f, 1f, progress);
+            Color currentColor = Color.Lerp(defendColor, originalColor, progress);
+            
+            image.transform.localScale = originalScale * scale;
+            image.color = currentColor;
+            yield return null;
+        }
+        
+        image.transform.localScale = originalScale;
+        image.color = originalColor;
+    }
+    
+    private System.Collections.IEnumerator HealAnimation(Image image)
+    {
+        // Turn green and pulse gently
+        Vector3 originalScale = image.transform.localScale;
+        Color originalColor = image.color;
+        Color healColor = Color.green;
+        
+        float duration = 0.4f;
+        
+        // Pulse green 3 times
+        for (int i = 0; i < 3; i++)
+        {
+            float elapsed = 0f;
+            
+            // Fade to green
+            while (elapsed < duration / 2)
+            {
+                elapsed += Time.deltaTime;
+                float progress = elapsed / (duration / 2);
+                Color currentColor = Color.Lerp(originalColor, healColor, progress * 0.8f);
+                image.color = currentColor;
+                yield return null;
+            }
+            
+            // Fade back
+            elapsed = 0f;
+            while (elapsed < duration / 2)
+            {
+                elapsed += Time.deltaTime;
+                float progress = elapsed / (duration / 2);
+                Color currentColor = Color.Lerp(healColor, originalColor, progress);
+                image.color = currentColor;
+                yield return null;
+            }
+        }
+        
+        image.color = originalColor;
+    }
+    
+    private System.Collections.IEnumerator SpecialAttackAnimation(Image image)
+    {
+        // Dramatic scale and color change
+        Vector3 originalScale = image.transform.localScale;
+        Color originalColor = image.color;
+        Color specialColor = Color.yellow;
+        
+        float duration = 0.3f;
+        float elapsed = 0f;
+        
+        // Dramatic scale up with yellow glow
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            float scale = Mathf.Lerp(1f, 1.3f, progress);
+            Color currentColor = Color.Lerp(originalColor, specialColor, progress);
+            
+            image.transform.localScale = originalScale * scale;
+            image.color = currentColor;
+            yield return null;
+        }
+        
+        // Hold briefly
+        yield return new WaitForSeconds(0.1f);
+        
+        // Quick return
+        elapsed = 0f;
+        duration = 0.2f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            float scale = Mathf.Lerp(1.3f, 1f, progress);
+            Color currentColor = Color.Lerp(specialColor, originalColor, progress);
+            
+            image.transform.localScale = originalScale * scale;
+            image.color = currentColor;
+            yield return null;
+        }
+        
+        image.transform.localScale = originalScale;
+        image.color = originalColor;
+    }
+    
+    // HurtAnimation already exists above - using that one (but need to modify it for no color)
+    
+    private System.Collections.IEnumerator SpecialHurtAnimation(Image image)
+    {
+        // Intense red flash for special attacks
+        Vector3 originalPosition = image.transform.localPosition;
+        Color originalColor = image.color;
+        Color hurtColor = new Color(1f, 0f, 0f, 1f); // Bright red
+        
+        float duration = 0.4f;
+        float elapsed = 0f;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            
+            // Intense red flash
+            Color currentColor = Color.Lerp(hurtColor, originalColor, progress);
+            image.color = currentColor;
+            
+            // More intense shake
+            float shakeAmount = (1f - progress) * 8f;
+            Vector3 shakeOffset = new Vector3(
+                Random.Range(-shakeAmount, shakeAmount),
+                Random.Range(-shakeAmount, shakeAmount),
+                0f
+            );
+            image.transform.localPosition = originalPosition + shakeOffset;
+            
+            yield return null;
+        }
+        
+        image.transform.localPosition = originalPosition;
+        image.color = originalColor;
+    }
+
 
 }
 
