@@ -395,10 +395,19 @@ function getEnemyAction(): string {
 async function createBattle(player: any, enemy: any): Promise<any> {
   const battleId = generateBattleId();
   
+  // Reset SP to 0 at battle start for strategic SP system
+  const battlePlayer = { ...player };
+  const battleEnemy = { ...enemy };
+  
+  battlePlayer.stats.specialPoints = 0;
+  battleEnemy.stats.specialPoints = 0;
+  
+  console.log(`[Battle] SP reset to 0 for both players at battle start`);
+  
   const battleState = {
     battleId,
-    player: { ...player },
-    enemy: { ...enemy },
+    player: battlePlayer,
+    enemy: battleEnemy,
     currentTurn: 'player',
     turnNumber: 1,
     isActive: true,
@@ -449,15 +458,32 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
   console.log(`[Battle] Player HP before: ${battle.player.stats.hitPoints}/${battle.player.stats.maxHitPoints}`);
   console.log(`[Battle] Enemy HP before: ${battle.enemy.stats.hitPoints}/${battle.enemy.stats.maxHitPoints}`);
   
+  // SP charging system: gain SP from regular actions, lose SP from special attacks
+  const spGainPerAction = 3; // SP gained per regular action
+  const spCostSpecial = Math.floor(battle.player.stats.maxSpecialPoints * 0.8); // Special costs 80% of max SP
+  
   if (playerAction === 'heal') {
     playerHealing = Math.floor(battle.player.stats.maxHitPoints * 0.3); // Heal 30%
     battle.player.stats.hitPoints = Math.min(
       battle.player.stats.maxHitPoints, 
       battle.player.stats.hitPoints + playerHealing
     );
-    playerMessage = `${battle.player.username} healed for ${playerHealing} HP!`;
+    
+    // Gain SP for healing
+    battle.player.stats.specialPoints = Math.min(
+      battle.player.stats.maxSpecialPoints,
+      battle.player.stats.specialPoints + spGainPerAction
+    );
+    
+    playerMessage = `${battle.player.username} healed for ${playerHealing} HP! (+${spGainPerAction} SP)`;
   } else if (playerAction === 'defend') {
-    playerMessage = `${battle.player.username} is defending!`;
+    // Gain SP for defending
+    battle.player.stats.specialPoints = Math.min(
+      battle.player.stats.maxSpecialPoints,
+      battle.player.stats.specialPoints + spGainPerAction
+    );
+    
+    playerMessage = `${battle.player.username} is defending! (+${spGainPerAction} SP)`;
   } else {
     playerDamage = calculateDamage(battle.player, battle.enemy, playerAction);
     console.log(`[Battle] Player damage calculated: ${playerDamage}`);
@@ -467,10 +493,25 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
     console.log(`[Battle] Enemy HP: ${enemyHpBefore} -> ${battle.enemy.stats.hitPoints} (damage: ${playerDamage})`);
     
     if (playerAction === 'special') {
-      battle.player.stats.specialPoints = Math.max(0, battle.player.stats.specialPoints - 10);
-      playerMessage = `${battle.player.username} used special attack for ${playerDamage} damage!`;
+      // Check if player has enough SP for special attack
+      if (battle.player.stats.specialPoints >= spCostSpecial) {
+        battle.player.stats.specialPoints = Math.max(0, battle.player.stats.specialPoints - spCostSpecial);
+        playerMessage = `${battle.player.username} used special attack for ${playerDamage} damage! (-${spCostSpecial} SP)`;
+      } else {
+        // Not enough SP - treat as regular attack but still consume some SP
+        const availableSP = battle.player.stats.specialPoints;
+        battle.player.stats.specialPoints = 0;
+        playerDamage = Math.floor(playerDamage * 0.7); // Reduced damage if not enough SP
+        battle.enemy.stats.hitPoints = Math.max(0, enemyHpBefore - playerDamage); // Recalculate with reduced damage
+        playerMessage = `${battle.player.username} attempted special attack but low SP! Weak attack for ${playerDamage} damage! (-${availableSP} SP)`;
+      }
     } else {
-      playerMessage = `${battle.player.username} attacked for ${playerDamage} damage!`;
+      // Regular attack - gain SP
+      battle.player.stats.specialPoints = Math.min(
+        battle.player.stats.maxSpecialPoints,
+        battle.player.stats.specialPoints + spGainPerAction
+      );
+      playerMessage = `${battle.player.username} attacked for ${playerDamage} damage! (+${spGainPerAction} SP)`;
     }
   }
   
@@ -1165,14 +1206,17 @@ router.post('/api/battle/enemy-turn', async (req, res): Promise<void> => {
       return;
     }
     
-    // Process enemy turn
+    // Process enemy turn with SP system
     const enemyAction = getEnemyAction();
     let enemyDamage = 0;
     let enemyHealing = 0;
     let enemyMessage = '';
+    const spGainPerAction = 3; // Same SP gain as player
+    const spCostSpecial = Math.floor(battle.enemy.stats.maxSpecialPoints * 0.8);
     
     console.log(`[Battle] === ENEMY TURN START ===`);
     console.log(`[Battle] Enemy action: ${enemyAction}`);
+    console.log(`[Battle] Enemy SP before: ${battle.enemy.stats.specialPoints}/${battle.enemy.stats.maxSpecialPoints}`);
     
     if (enemyAction === 'heal') {
       enemyHealing = Math.floor(battle.enemy.stats.maxHitPoints * 0.2);
@@ -1180,8 +1224,21 @@ router.post('/api/battle/enemy-turn', async (req, res): Promise<void> => {
         battle.enemy.stats.maxHitPoints,
         battle.enemy.stats.hitPoints + enemyHealing
       );
+      
+      // Enemy gains SP for healing
+      battle.enemy.stats.specialPoints = Math.min(
+        battle.enemy.stats.maxSpecialPoints,
+        battle.enemy.stats.specialPoints + spGainPerAction
+      );
+      
       enemyMessage = `${battle.enemy.username} healed for ${enemyHealing} HP!`;
     } else if (enemyAction === 'defend') {
+      // Enemy gains SP for defending
+      battle.enemy.stats.specialPoints = Math.min(
+        battle.enemy.stats.maxSpecialPoints,
+        battle.enemy.stats.specialPoints + spGainPerAction
+      );
+      
       enemyMessage = `${battle.enemy.username} is defending!`;
     } else {
       enemyDamage = calculateDamage(battle.enemy, battle.player, enemyAction);
@@ -1191,8 +1248,30 @@ router.post('/api/battle/enemy-turn', async (req, res): Promise<void> => {
       battle.player.stats.hitPoints = Math.max(0, battle.player.stats.hitPoints - enemyDamage);
       console.log(`[Battle] Player HP: ${playerHpBefore} -> ${battle.player.stats.hitPoints}`);
       
-      enemyMessage = `${battle.enemy.username} attacked for ${enemyDamage} damage!`;
+      if (enemyAction === 'special') {
+        // Enemy special attack with SP cost
+        if (battle.enemy.stats.specialPoints >= spCostSpecial) {
+          battle.enemy.stats.specialPoints = Math.max(0, battle.enemy.stats.specialPoints - spCostSpecial);
+          enemyMessage = `${battle.enemy.username} used special attack for ${enemyDamage} damage!`;
+        } else {
+          // Not enough SP - weaker attack
+          const availableSP = battle.enemy.stats.specialPoints;
+          battle.enemy.stats.specialPoints = 0;
+          enemyDamage = Math.floor(enemyDamage * 0.7);
+          battle.player.stats.hitPoints = Math.max(0, playerHpBefore - enemyDamage);
+          enemyMessage = `${battle.enemy.username} attempted special attack but low SP! Weak attack for ${enemyDamage} damage!`;
+        }
+      } else {
+        // Regular attack - enemy gains SP
+        battle.enemy.stats.specialPoints = Math.min(
+          battle.enemy.stats.maxSpecialPoints,
+          battle.enemy.stats.specialPoints + spGainPerAction
+        );
+        enemyMessage = `${battle.enemy.username} attacked for ${enemyDamage} damage!`;
+      }
     }
+    
+    console.log(`[Battle] Enemy SP after: ${battle.enemy.stats.specialPoints}/${battle.enemy.stats.maxSpecialPoints}`);
     
     const enemyTurn = {
       attacker: battle.enemy.username,

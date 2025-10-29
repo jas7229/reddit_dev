@@ -161,6 +161,12 @@ public class BattleUIManager : MonoBehaviour
         UpdatePlayerUI();
         UpdateEnemyUI();
         UpdateBattleStatus();
+        
+        // Update special button state based on current SP
+        if (currentBattle != null && currentBattle.isActive && currentBattle.currentTurn == "player")
+        {
+            UpdateSpecialButtonState(true);
+        }
     }
     
     private void UpdatePlayerUI() 
@@ -424,27 +430,20 @@ public class BattleUIManager : MonoBehaviour
     
     private System.Collections.IEnumerator PulseTurnIndicator(Image indicator)
     {
-        Color originalColor = indicator.color;
-        float duration = 1f;
-        float elapsed = 0f;
+        Color baseColor = indicator.color;
+        float pulseSpeed = 2f; // Slower pulse
         
-        while (elapsed < duration && indicator.color == originalColor)
+        // Pulse continuously while this color is active
+        while (indicator != null && Mathf.Approximately(indicator.color.r, baseColor.r))
         {
-            elapsed += Time.deltaTime;
-            float alpha = Mathf.Lerp(originalColor.a, originalColor.a * 0.5f, 
-                (Mathf.Sin(elapsed * 4f) + 1f) / 2f);
+            float pulse = (Mathf.Sin(Time.time * pulseSpeed) + 1f) / 2f; // 0 to 1
+            float alpha = Mathf.Lerp(baseColor.a * 0.6f, baseColor.a, pulse);
             
-            Color pulseColor = originalColor;
+            Color pulseColor = baseColor;
             pulseColor.a = alpha;
             indicator.color = pulseColor;
             
             yield return null;
-        }
-        
-        // Restore original color if still active
-        if (indicator.color.r == originalColor.r) // Check if still the same base color
-        {
-            indicator.color = originalColor;
         }
     }
     
@@ -1007,8 +1006,8 @@ public class BattleUIManager : MonoBehaviour
         Color originalColor = hurtImage.color;
         Vector3 originalPosition = hurtImage.transform.localPosition;
         
-        // Hurt animation: blink and shake (no red)
-        float animationTime = 0.8f; // Slightly shorter
+        // Hurt animation: slower, more deliberate blink and shake (similar to heal speed)
+        float animationTime = 1.2f; // Longer duration, closer to heal
         float elapsed = 0f;
         
         while (elapsed < animationTime)
@@ -1016,15 +1015,15 @@ public class BattleUIManager : MonoBehaviour
             elapsed += Time.deltaTime;
             float progress = elapsed / animationTime;
             
-            // Blink effect (fade in/out) - slower blinks
-            float blinkIntensity = Mathf.Sin(progress * Mathf.PI * 4); // 2 blinks, slower
-            float alpha = 0.3f + (Mathf.Abs(blinkIntensity) * 0.7f); // Fade between 30% and 100%
+            // Slower, more deliberate blink effect (similar to heal rhythm)
+            float blinkIntensity = Mathf.Sin(progress * Mathf.PI * 2.5f); // Slower blinks
+            float alpha = 0.4f + (Mathf.Abs(blinkIntensity) * 0.6f); // Fade between 40% and 100%
             Color blinkColor = originalColor;
             blinkColor.a = alpha;
             hurtImage.color = blinkColor;
             
-            // Shake effect (slightly reduced intensity)
-            float shakeIntensity = (1f - progress) * 3f; // Reduced from 5f to 3f
+            // Gentler shake effect
+            float shakeIntensity = (1f - progress) * 2f; // Even gentler shake
             Vector3 shake = new Vector3(
                 UnityEngine.Random.Range(-shakeIntensity, shakeIntensity),
                 UnityEngine.Random.Range(-shakeIntensity, shakeIntensity),
@@ -1089,14 +1088,35 @@ public class BattleUIManager : MonoBehaviour
     {
         SetButtonState(attackButton, enabled, "Attack");
         SetButtonState(defendButton, enabled, "Defend");
-        SetButtonState(specialButton, enabled, "Special");
         SetButtonState(healButton, enabled, "Heal");
+        
+        // Special button has additional SP requirement check
+        UpdateSpecialButtonState(enabled);
         
         // If disabling, also reset any stuck visual effects immediately
         if (!enabled)
         {
             ResetAvatarVisuals();
         }
+    }
+    
+    // Update special button based on SP availability
+    private void UpdateSpecialButtonState(bool battleActive)
+    {
+        if (specialButton == null) return;
+        
+        bool hasEnoughSP = false;
+        
+        if (currentBattle != null && currentBattle.player != null)
+        {
+            // Calculate SP cost (80% of max SP)
+            int spCost = Mathf.FloorToInt(currentBattle.player.stats.maxSpecialPoints * 0.8f);
+            hasEnoughSP = currentBattle.player.stats.specialPoints >= spCost;
+            
+            Debug.Log($"Special button check: SP {currentBattle.player.stats.specialPoints}/{currentBattle.player.stats.maxSpecialPoints}, Cost: {spCost}, Enabled: {battleActive && hasEnoughSP}");
+        }
+        
+        SetButtonState(specialButton, battleActive && hasEnoughSP, "Special");
     }
     
     // Helper method to set individual button state with text color
