@@ -13,6 +13,9 @@ public class BattleSelectionManager : MonoBehaviour
     [DllImport("__Internal")]
     private static extern void StartBattleWithDifficulty(string difficulty);
     
+    [DllImport("__Internal")]
+    private static extern void StartBattleWithEnemy(string enemyUsername, string difficulty);
+    
     [Header("Battle Selection UI")]
     public GameObject battleSelectionPanel; // Main selection screen panel
     public Button easyButton;
@@ -50,6 +53,7 @@ public class BattleSelectionManager : MonoBehaviour
     private EnemyPreviewData currentEnemy;
     private bool isLoadingPreview = false;
     private bool hasShownPreviewPanel = false; // Track if panel has been shown before
+    private bool isBattleStarting = false; // Track if battle is currently starting
     
     void Start()
     {
@@ -79,13 +83,28 @@ public class BattleSelectionManager : MonoBehaviour
         
         // Auto-open battle selection after a short delay (let scene load first)
         Invoke("AutoOpenBattleSelection", 1f);
+        
+        // Fallback: Also try opening after a longer delay in case of issues
+        Invoke("FallbackOpenBattleSelection", 3f);
     }
     
     // Automatically open battle selection when scene loads
     private void AutoOpenBattleSelection()
     {
         Debug.Log("Auto-opening battle selection screen");
+        Debug.Log($"battleSelectionPanel is null: {battleSelectionPanel == null}");
+        Debug.Log($"enemyPreviewPanel is null: {enemyPreviewPanel == null}");
         OpenBattleSelection();
+    }
+    
+    // Fallback method in case auto-open fails
+    private void FallbackOpenBattleSelection()
+    {
+        if (battleSelectionPanel != null && !battleSelectionPanel.activeInHierarchy)
+        {
+            Debug.Log("Fallback: Battle selection panel not open, trying again");
+            OpenBattleSelection();
+        }
     }
     
     // Public method to open battle selection (call from main menu)
@@ -95,6 +114,7 @@ public class BattleSelectionManager : MonoBehaviour
         
         if (battleSelectionPanel != null)
         {
+            Debug.Log("Setting battleSelectionPanel active");
             battleSelectionPanel.SetActive(true);
             
             // Animate panel in with LeanTween
@@ -102,6 +122,10 @@ public class BattleSelectionManager : MonoBehaviour
             LeanTween.scale(battleSelectionPanel, Vector3.one, 0.4f)
                 .setEase(LeanTweenType.easeOutBack)
                 .setOvershoot(1.1f);
+        }
+        else
+        {
+            Debug.LogError("battleSelectionPanel is null! Please assign it in the inspector.");
         }
         
         // Load initial enemy preview
@@ -191,13 +215,18 @@ public class BattleSelectionManager : MonoBehaviour
     // Load enemy preview from server
     private void LoadEnemyPreview(string difficulty, bool reroll)
     {
-        if (isLoadingPreview) return;
+        if (isLoadingPreview) 
+        {
+            Debug.Log("Already loading preview, skipping");
+            return;
+        }
         
         isLoadingPreview = true;
         Debug.Log($"Loading enemy preview: {difficulty}, reroll: {reroll}");
         
-        // Show loading state
+        // Show loading state and update back button
         ShowLoadingState();
+        UpdateBackButtonState();
         
         #if UNITY_WEBGL && !UNITY_EDITOR
             // Call JavaScript function to get enemy preview
@@ -245,6 +274,7 @@ public class BattleSelectionManager : MonoBehaviour
     {
         Debug.Log("Enemy preview received: " + jsonData);
         isLoadingPreview = false; // Always reset loading state
+        UpdateBackButtonState(); // Re-enable back button
         
         try
         {
@@ -280,18 +310,83 @@ public class BattleSelectionManager : MonoBehaviour
     {
         Debug.Log($"Starting battle with {selectedDifficulty} difficulty");
         
-        // Close selection screen
-        CloseBattleSelection();
-        
-        // Start battle through BattleUIManager (which will use the selected difficulty)
-        if (battleUIManager != null)
+        // Add exciting button animation before starting battle
+        if (confirmBattleButton != null)
         {
-            // The battle system will automatically use the difficulty we've selected
-            battleUIManager.StartNewBattle();
+            // Disable button to prevent double-clicks
+            confirmBattleButton.interactable = false;
+            
+            // Stop idle animation
+            LeanTween.cancel(confirmBattleButton.gameObject);
+            
+            // Pulse animation with color change
+            Image buttonImage = confirmBattleButton.GetComponent<Image>();
+            Color originalColor = buttonImage != null ? buttonImage.color : Color.white;
+            
+            // Quick pulse with bright color
+            LeanTween.scale(confirmBattleButton.gameObject, Vector3.one * 1.2f, 0.15f)
+                .setEase(LeanTweenType.easeOutQuad)
+                .setOnComplete(() => {
+                    LeanTween.scale(confirmBattleButton.gameObject, Vector3.one, 0.15f)
+                        .setEase(LeanTweenType.easeInQuad)
+                        .setOnComplete(() => {
+                            // Start battle after animation
+                            StartBattleAfterAnimation();
+                        });
+                });
+            
+            // Color flash effect
+            if (buttonImage != null)
+            {
+                LeanTween.value(confirmBattleButton.gameObject, originalColor, Color.yellow, 0.15f)
+                    .setOnUpdate((Color color) => {
+                        if (buttonImage != null) buttonImage.color = color;
+                    })
+                    .setOnComplete(() => {
+                        LeanTween.value(confirmBattleButton.gameObject, Color.yellow, originalColor, 0.15f)
+                            .setOnUpdate((Color color) => {
+                                if (buttonImage != null) buttonImage.color = color;
+                            });
+                    });
+            }
         }
         else
         {
-            Debug.LogError("BattleUIManager not found! Please assign it in the inspector.");
+            // Fallback if no button reference
+            StartBattleAfterAnimation();
+        }
+    }
+    
+    // Actually start the battle (called after button animation)
+    private void StartBattleAfterAnimation()
+    {
+        // Close selection screen
+        CloseBattleSelection();
+        
+        // Start battle with the specific previewed enemy
+        if (currentEnemy != null && !string.IsNullOrEmpty(currentEnemy.username))
+        {
+            Debug.Log($"Starting battle with previewed enemy: {currentEnemy.username} at {selectedDifficulty} difficulty");
+            
+            #if UNITY_WEBGL && !UNITY_EDITOR
+                StartBattleWithEnemy(currentEnemy.username, selectedDifficulty);
+            #else
+                Debug.Log($"Would start battle with {currentEnemy.username} at {selectedDifficulty} difficulty in WebGL build");
+            #endif
+        }
+        else
+        {
+            Debug.LogWarning("No enemy previewed! Falling back to difficulty-based battle start");
+            
+            // Fallback to old system if no enemy is previewed
+            if (battleUIManager != null)
+            {
+                battleUIManager.StartNewBattle();
+            }
+            else
+            {
+                Debug.LogError("BattleUIManager not found! Please assign it in the inspector.");
+            }
         }
     }
     
@@ -395,7 +490,12 @@ public class BattleSelectionManager : MonoBehaviour
         
         // Enable action buttons
         if (rerollButton != null) rerollButton.interactable = true;
-        if (confirmBattleButton != null) confirmBattleButton.interactable = true;
+        if (confirmBattleButton != null) 
+        {
+            confirmBattleButton.interactable = true;
+            // Add subtle pulsing animation to draw attention to the start button
+            StartBattleButtonIdleAnimation();
+        }
     }
     
     // Load enemy avatar for preview
@@ -475,6 +575,51 @@ public class BattleSelectionManager : MonoBehaviour
             case "easy": return easyColor;
             case "hard": return hardColor;
             default: return mediumColor;
+        }
+    }
+    
+    // Add subtle idle animation to the start battle button
+    private void StartBattleButtonIdleAnimation()
+    {
+        if (confirmBattleButton != null)
+        {
+            // Cancel any existing animations on this button
+            LeanTween.cancel(confirmBattleButton.gameObject);
+            
+            // Subtle breathing animation - scale between 1.0 and 1.05
+            LeanTween.scale(confirmBattleButton.gameObject, Vector3.one * 1.05f, 1.5f)
+                .setEase(LeanTweenType.easeInOutSine)
+                .setLoopPingPong()
+                .setIgnoreTimeScale(true);
+        }
+    }
+    
+    // Update back button state based on current conditions
+    private void UpdateBackButtonState()
+    {
+        if (backButton != null)
+        {
+            // Disable back button when loading or battle is starting
+            bool shouldDisable = isLoadingPreview || isBattleStarting;
+            
+            backButton.interactable = !shouldDisable;
+            
+            // Visual feedback for disabled state
+            Image buttonImage = backButton.GetComponent<Image>();
+            TextMeshProUGUI buttonText = backButton.GetComponentInChildren<TextMeshProUGUI>();
+            
+            if (shouldDisable)
+            {
+                // Disabled state - grey out
+                if (buttonImage != null) buttonImage.color = new Color(0.5f, 0.5f, 0.5f, 0.7f);
+                if (buttonText != null) buttonText.color = new Color(0.6f, 0.6f, 0.6f, 0.8f);
+            }
+            else
+            {
+                // Enabled state - normal colors
+                if (buttonImage != null) buttonImage.color = new Color(0.8f, 0.3f, 0.3f, 1f); // Red-ish back button
+                if (buttonText != null) buttonText.color = Color.white;
+            }
         }
     }
 }

@@ -365,15 +365,15 @@ function calculateDamage(attacker: any, defender: any, action: string): number {
   
   switch (action) {
     case 'attack':
-      baseDamage = Math.floor(attacker.stats.attack * 0.75); // Reduced regular attack power (25% weaker)
+      baseDamage = Math.floor(attacker.stats.attack * 1.0); // Full attack power for faster battles
       break;
     case 'special':
-      baseDamage = Math.floor(attacker.stats.attack * 1.5); // 50% more damage (unchanged)
+      baseDamage = Math.floor(attacker.stats.attack * 1.8); // Increased special damage for impact
       break;
     case 'defend':
       return 0; // Defending does no damage
     default:
-      baseDamage = Math.floor(attacker.stats.attack * 0.75); // Reduced default attack power
+      baseDamage = Math.floor(attacker.stats.attack * 1.0); // Full default attack power
   }
   
   // Add some randomness (80-120% of base damage)
@@ -734,6 +734,43 @@ router.post('/api/battle/start', async (req, res): Promise<void> => {
   }
 });
 
+// Battle start with specific enemy endpoint
+router.post('/api/battle/start-with-enemy', async (req, res): Promise<void> => {
+  try {
+    const currentUsername = await reddit.getCurrentUsername();
+    if (!currentUsername) {
+      res.status(400).json({ status: 'error', message: 'Username required' });
+      return;
+    }
+
+    const { enemyUsername, difficulty = 'medium' } = req.body;
+    if (!enemyUsername) {
+      res.status(400).json({ status: 'error', message: 'Enemy username required' });
+      return;
+    }
+    
+    console.log(`[Battle Start] Starting ${difficulty} battle with specific enemy: ${enemyUsername} for ${currentUsername}`);
+    
+    const player = await getOrCreatePlayer(currentUsername);
+    
+    // Use the selected difficulty to generate the enemy with appropriate stats
+    const enemy = await generateSpecificEnemyWithDifficulty(enemyUsername, player, difficulty);
+    
+    // Create battle
+    const battleState = await createBattle(player, enemy);
+    
+    res.json({
+      status: 'success',
+      battleState,
+      message: `Battle started against ${enemy.username}!`
+    });
+    
+  } catch (error) {
+    console.error('[Battle Start with Enemy] Error:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to start battle with specific enemy' });
+  }
+});
+
 // Generate enemy with specific difficulty
 async function generateEnemyByDifficulty(player: any, difficulty: string): Promise<any> {
   const playerLevel = player.stats.level;
@@ -742,14 +779,14 @@ async function generateEnemyByDifficulty(player: any, difficulty: string): Promi
   // Determine enemy level based on difficulty
   switch (difficulty) {
     case 'easy':
-      enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 2) - 1); // 1-2 levels lower
+      enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 3) - 1); // 1-3 levels lower (easier)
       break;
     case 'hard':
       enemyLevel = playerLevel + Math.floor(Math.random() * 3) + 1; // 1-3 levels higher
       break;
     case 'medium':
     default:
-      enemyLevel = Math.max(1, playerLevel + Math.floor(Math.random() * 3) - 1); // -1 to +2 levels
+      enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 2)); // 0-1 levels lower (easier)
       break;
   }
   
@@ -789,7 +826,22 @@ async function generateEnemyByDifficulty(player: any, difficulty: string): Promi
   const randomEnemy = famousEnemies[Math.floor(Math.random() * famousEnemies.length)];
   const enemyAvatarUrl = await getUserSnoovatar(randomEnemy);
   
-  // Create enemy stats based on level
+  // Determine HP based on difficulty for balanced battles
+  let hitPoints: number;
+  switch (difficulty) {
+    case 'easy':
+      hitPoints = 30 + (enemyLevel * 5); // Easy HP: 3-4 turn battles
+      break;
+    case 'hard':
+      hitPoints = 50 + (enemyLevel * 10); // Hard HP: 6-8 turn battles
+      break;
+    case 'medium':
+    default:
+      hitPoints = 40 + (enemyLevel * 7); // Medium HP: 4-6 turn battles
+      break;
+  }
+
+  // Create enemy stats based on level and difficulty
   const enemyCharacter = {
     username: randomEnemy,
     avatarUrl: enemyAvatarUrl,
@@ -797,8 +849,8 @@ async function generateEnemyByDifficulty(player: any, difficulty: string): Promi
       level: enemyLevel,
       experience: 0,
       experienceToNext: enemyLevel * 100,
-      hitPoints: 80 + (enemyLevel * 20), // Slightly lower base HP than players
-      maxHitPoints: 80 + (enemyLevel * 20),
+      hitPoints: hitPoints,
+      maxHitPoints: hitPoints,
       specialPoints: 15 + (enemyLevel * 5),
       maxSpecialPoints: 15 + (enemyLevel * 5),
       attack: 8 + (enemyLevel * 3),
@@ -811,6 +863,63 @@ async function generateEnemyByDifficulty(player: any, difficulty: string): Promi
   
   console.log(`[Enemy Preview] Generated ${difficulty} enemy: ${randomEnemy} (Level ${enemyLevel})`);
   return enemyCharacter;
+}
+
+// Generate specific enemy by username with difficulty
+async function generateSpecificEnemyWithDifficulty(enemyUsername: string, player: any, difficulty: string): Promise<any> {
+  const playerLevel = player.stats.level;
+  let enemyLevel: number;
+  let hitPoints: number;
+  let maxHitPoints: number;
+  
+  // Determine enemy level and HP based on difficulty (balanced for good pacing)
+  switch (difficulty) {
+    case 'easy':
+      enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 3) - 1); // 1-3 levels lower
+      hitPoints = 30 + (enemyLevel * 5); // Easy HP: 3-4 turn battles
+      break;
+    case 'hard':
+      enemyLevel = playerLevel + Math.floor(Math.random() * 3) + 1; // 1-3 levels higher
+      hitPoints = 50 + (enemyLevel * 10); // Hard HP: 6-8 turn battles
+      break;
+    case 'medium':
+    default:
+      enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 2)); // 0-1 levels lower
+      hitPoints = 40 + (enemyLevel * 7); // Medium HP: 4-6 turn battles
+      break;
+  }
+  
+  maxHitPoints = hitPoints;
+  
+  const enemyAvatarUrl = await getUserSnoovatar(enemyUsername);
+  
+  // Create enemy stats based on level and difficulty
+  const enemyCharacter = {
+    username: enemyUsername,
+    avatarUrl: enemyAvatarUrl,
+    stats: {
+      level: enemyLevel,
+      experience: 0,
+      experienceToNext: enemyLevel * 100,
+      hitPoints: hitPoints,
+      maxHitPoints: maxHitPoints,
+      specialPoints: 15 + (enemyLevel * 5),
+      maxSpecialPoints: 15 + (enemyLevel * 5),
+      attack: 8 + (enemyLevel * 3),
+      defense: 3 + (enemyLevel * 2),
+      skillPoints: 0,
+      gold: enemyLevel * 10
+    },
+    isNPC: true
+  };
+  
+  console.log(`[Enemy Generation] Generated ${difficulty} enemy: ${enemyUsername} (Level ${enemyLevel}, ${hitPoints} HP)`);
+  return enemyCharacter;
+}
+
+// Generate specific enemy by username (legacy function, kept for compatibility)
+async function generateSpecificEnemy(enemyUsername: string, player: any): Promise<any> {
+  return generateSpecificEnemyWithDifficulty(enemyUsername, player, 'medium');
 }
 
 // Test endpoint to check profile fetching
@@ -1025,8 +1134,8 @@ router.get('/api/enemy', async (_req, res): Promise<void> => {
         level: enemyLevel,
         experience: 0,
         experienceToNext: 0,
-        hitPoints: 40 + (enemyLevel * 8), // Much weaker: 40 + 8*level
-        maxHitPoints: 40 + (enemyLevel * 8),
+        hitPoints: 25 + (enemyLevel * 4), // Much faster battles: 25 + 4*level
+        maxHitPoints: 25 + (enemyLevel * 4),
         specialPoints: 5 + enemyLevel, // Much less SP: 5 + level
         maxSpecialPoints: 5 + enemyLevel,
         attack: 4 + Math.floor(enemyLevel / 2), // Much weaker attack: 4 + level/2
@@ -1126,10 +1235,10 @@ router.post('/api/enemy/preview', async (req, res): Promise<void> => {
     
     switch (difficulty) {
       case 'easy':
-        enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 2 + 1)); // 1-2 levels below
+        enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 3 + 1)); // 1-3 levels below (easier)
         break;
       case 'medium':
-        enemyLevel = playerLevel + Math.floor(Math.random() * 3 - 1); // -1 to +1 levels
+        enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 2)); // 0-1 levels below (easier)
         break;
       case 'hard':
         enemyLevel = playerLevel + Math.floor(Math.random() * 3 + 1); // 1-3 levels above
@@ -1146,8 +1255,8 @@ router.post('/api/enemy/preview', async (req, res): Promise<void> => {
         level: enemyLevel,
         experience: 0,
         experienceToNext: enemyLevel * 100,
-        hitPoints: 80 + (enemyLevel * 10), // Slightly weaker than player
-        maxHitPoints: 80 + (enemyLevel * 10),
+        hitPoints: 35 + (enemyLevel * 5), // Much faster battles: 35 + 5*level
+        maxHitPoints: 35 + (enemyLevel * 5),
         specialPoints: 15 + Math.floor(enemyLevel * 1.5),
         maxSpecialPoints: 15 + Math.floor(enemyLevel * 1.5),
         attack: 8 + Math.floor(enemyLevel * 1.2),
@@ -1190,109 +1299,7 @@ router.post('/api/enemy/preview', async (req, res): Promise<void> => {
   }
 });
 
-// Battle System API Endpoints
-router.post('/api/battle/start', async (_req, res): Promise<void> => {
-  try {
-    const username = await reddit.getCurrentUsername();
-    if (!username) {
-      res.status(400).json({ status: 'error', message: 'Username required' });
-      return;
-    }
-    
-    const player = await getOrCreatePlayer(username);
-    
-    // Generate enemy using same logic as /api/enemy endpoint
-    let randomEnemy;
-    
-    // 60% chance to fight a real player, 40% chance for famous accounts
-    if (Math.random() < 0.6) {
-      try {
-        const leaderboardHash = await redis.hGetAll('global_leaderboard');
-        const realPlayers = [];
-        
-        for (const [enemyUsername, scoreStr] of Object.entries(leaderboardHash)) {
-          if (enemyUsername !== username) {
-            const playerKey = `player:${enemyUsername}`;
-            const playerDataStr = await redis.get(playerKey);
-            if (playerDataStr) {
-              const playerData = JSON.parse(playerDataStr);
-              realPlayers.push({
-                username: playerData.username || enemyUsername,
-                level: playerData.stats?.level || 1
-              });
-            }
-          }
-        }
-        
-        if (realPlayers.length > 0) {
-          realPlayers.sort((a, b) => Math.abs(a.level - player.stats.level) - Math.abs(b.level - player.stats.level));
-          const candidatePlayers = realPlayers.slice(0, Math.min(5, realPlayers.length));
-          const selectedPlayer = candidatePlayers[Math.floor(Math.random() * candidatePlayers.length)];
-          if (selectedPlayer) {
-            randomEnemy = selectedPlayer.username;
-          }
-        }
-      } catch (error) {
-        console.error('[Battle] Error getting real players for battle:', error);
-      }
-    }
-    
-    // Fallback to famous accounts (only those with custom avatars)
-    if (!randomEnemy) {
-      const famousEnemies = [
-        'spez', 'kn0thing', 'pl00h', 'lift_ticket', 'penguitt', 'PRguitarman',
-        'artofbrentos', 'salt_the_wizard', 'StutterVoid', 'iamdeirdre', 'Hoppy_Doodle',
-        'Tandizojere', 'kinnester', 'artofmajon', 'tinymischiefs', 'kristyglas',
-        'WorstTwitchEver', 'Qugmo', 'sabet76', 'Conall-in-Space', 'TheFattyBagz',
-        'giftedocean', 'NatAltDesign', '_ships', 'OniCowboy', 'tfoust10',
-        'mantrakid', 'sixthrodeo', 'PotatoNahh', 'aerynlynne', 'AkuDreams', 'ImAlekBan',
-        'AliciaFreemanDesigns', 'OhBenny', 'anaeho', 'ChristineMendoza', 'Substantial-Law-910',
-        'AVIRENFT', 'NateBearArt', 'bodegacatceo', 'Bumblebon', 'BunnyPrecious',
-        'Canetoonist', 'ChipperdoodlesComic', 'Civort', 'Cool_Cats_NFT',
-        'entropyre', 'Potstar1', 'Frayz', 'The_GeoffreyK', 'GlowyMushroom', 'GwynnArts',
-        'slugfive', 'Jenniichii', 'hessicajansen', 'Josh_Brandon', 'karonuke', 'killjoyink',
-        'Koyangi2018', 'anondoodles', 'NaoTajigen', 'Pollila1', 'OpenFren', 'Oue',
-        'phobox91', 'razbonix', 'rocketMoonApe', 'RyeHardyDesigns', 'rylar', 'Saiyre-Art_Official',
-        'Shadowjom', 'darth-weedy', 'Wurlawyrm',
-        'shittymorph', 'KeyserSosa', 'powerlanguage', 'bsimpson'
-      ];
-      randomEnemy = famousEnemies[Math.floor(Math.random() * famousEnemies.length)];
-    }
-    const enemyAvatarUrl = await getUserSnoovatar(randomEnemy);
-    
-    const playerLevel = player.stats.level;
-    const enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 3) - 1); // Enemy is 1-3 levels lower
-    
-    const enemy = {
-      username: randomEnemy,
-      avatarUrl: enemyAvatarUrl,
-      stats: {
-        level: enemyLevel,
-        experience: 0,
-        experienceToNext: 0,
-        hitPoints: 40 + (enemyLevel * 8), // Much weaker: 40 + 8*level
-        maxHitPoints: 40 + (enemyLevel * 8),
-        specialPoints: 5 + enemyLevel, // Much less SP: 5 + level
-        maxSpecialPoints: 5 + enemyLevel,
-        attack: 4 + Math.floor(enemyLevel / 2), // Much weaker attack: 4 + level/2
-        defense: 1 + Math.floor(enemyLevel / 3), // Very low defense: 1 + level/3
-        skillPoints: 0,
-        gold: 0
-      },
-      isNPC: true
-    };
-    
-    const battleState = await createBattle(player, enemy);
-    
-    res.json({
-      status: 'success',
-      battleState: battleState
-    });
-  } catch (error) {
-    console.error('[Server] Error starting battle:', error);
-    res.status(500).json({ status: 'error', message: 'Failed to start battle' });
-  }
-});
+// Battle System API Endpoints (duplicate removed - using newer endpoint above)
 
 router.post('/api/battle/action', async (req, res): Promise<void> => {
   try {
@@ -1633,6 +1640,8 @@ router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
     });
   }
 });
+
+// Duplicate endpoint removed - using newer version above
 
 // Use router middleware
 app.use(router);

@@ -346,6 +346,35 @@ window.startBattleWithDifficulty = async function(difficulty) {
     }
 };
 
+// Battle start with specific enemy
+window.startBattleWithEnemy = async function(enemyUsername, difficulty = 'medium') {
+    try {
+        console.log('[Unity API] Starting battle with enemy:', enemyUsername, 'at difficulty:', difficulty);
+        const response = await fetch('/api/battle/start-with-enemy', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ enemyUsername, difficulty })
+        });
+        
+        const data = await response.json();
+        console.log('[Unity API] Battle start with enemy result:', data);
+        
+        // Call Unity callback if battle started successfully
+        if (data.status === 'success' && data.battleState) {
+            if (window.unityInstance) {
+                window.unityInstance.SendMessage('BattleUIManager', 'OnBattleStarted', JSON.stringify(data));
+            }
+        }
+        
+        return JSON.stringify(data);
+    } catch (error) {
+        console.error('Error starting battle with enemy:', error);
+        return JSON.stringify({ status: 'error', message: error.message });
+    }
+};
+
 // Also create a synchronous version for immediate access
 window.getUserAvatarSync = function () {
     return window.userAvatar || DEFAULT_AVATAR_URL;

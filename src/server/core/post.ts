@@ -10,7 +10,7 @@ export const createPost = async () => {
     splash: {
       // Minimal required fields only
       backgroundUri: 'ArenaSplash.png',
-      buttonLabel: 'Start Battle',
+      buttonLabel: 'Start Battling!',
       appIconUri: 'ArenaIcon.png',
     },
     postData: {

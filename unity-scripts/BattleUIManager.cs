@@ -77,6 +77,10 @@ public class BattleUIManager : MonoBehaviour
     public PlayerManager playerManager;
     public BattleSelectionManager battleSelectionManager;
     
+    [Header("Battle Selector Hint System")]
+    public Button battleSelectorButton; // The main button that opens battle selection
+    public TextMeshProUGUI battleHintText; // Hint text like "Choose an opponent"
+    
     [Header("Update Settings")]
     public bool autoUpdate = true;
     public float updateInterval = 0.5f;
@@ -172,6 +176,9 @@ public class BattleUIManager : MonoBehaviour
             lastUpdateTime = Time.time;
         }
         
+        // Update battle selector hint system
+        UpdateBattleSelectorHint();
+        
         // Safety mechanism: Reset animation flag if it's been stuck for too long
         if (isPlayingBattleAnimation && Time.time - lastUpdateTime > 10f)
         {
@@ -195,6 +202,12 @@ public class BattleUIManager : MonoBehaviour
         Debug.Log($"Turn Number: {currentBattle.turnNumber}");
         Debug.Log($"Player HP: {currentBattle.player.stats.hitPoints}/{currentBattle.player.stats.maxHitPoints}");
         Debug.Log($"Enemy HP: {currentBattle.enemy.stats.hitPoints}/{currentBattle.enemy.stats.maxHitPoints}");
+    }
+    
+    // Public method to check if a battle is currently active
+    public bool IsBattleActive()
+    {
+        return currentBattle != null && currentBattle.isActive;
     }
 
     
@@ -1872,6 +1885,55 @@ public class BattleUIManager : MonoBehaviour
         else
         {
             Debug.LogWarning("BattleSelectionManager not assigned! Please assign it in the inspector.");
+        }
+    }
+    
+    // Update battle selector button glow and hint when no battle is active
+    private void UpdateBattleSelectorHint()
+    {
+        bool noBattleActive = (currentBattle == null || !currentBattle.isActive);
+        bool selectionScreenClosed = (battleSelectionManager == null || 
+                                     battleSelectionManager.battleSelectionPanel == null || 
+                                     !battleSelectionManager.battleSelectionPanel.activeInHierarchy);
+        
+        // Show hint only when no battle is active AND selection screen is closed
+        bool shouldShowHint = noBattleActive && selectionScreenClosed;
+        
+        // Update hint text
+        if (battleHintText != null)
+        {
+            battleHintText.gameObject.SetActive(shouldShowHint);
+            if (shouldShowHint)
+            {
+                battleHintText.text = "Choose an opponent";
+                
+                // Subtle fade in/out animation for the hint text
+                float alpha = 0.7f + 0.3f * Mathf.Sin(Time.time * 1.5f); // Gentle breathing effect
+                Color textColor = battleHintText.color;
+                textColor.a = alpha;
+                battleHintText.color = textColor;
+            }
+        }
+        
+        // Update button glow
+        if (battleSelectorButton != null)
+        {
+            Image buttonImage = battleSelectorButton.GetComponent<Image>();
+            if (buttonImage != null && shouldShowHint)
+            {
+                // Subtle glow effect - slightly brighter color with gentle pulsing
+                float glowIntensity = 0.8f + 0.2f * Mathf.Sin(Time.time * 2f);
+                Color glowColor = new Color(1f, 0.9f, 0.4f, glowIntensity); // Warm golden glow
+                
+                // Blend with original color
+                Color originalColor = new Color(0.8f, 0.8f, 0.8f, 1f); // Assuming default button color
+                buttonImage.color = Color.Lerp(originalColor, glowColor, 0.3f);
+            }
+            else if (buttonImage != null && !shouldShowHint)
+            {
+                // Reset to normal color when not needed
+                buttonImage.color = new Color(0.8f, 0.8f, 0.8f, 1f);
+            }
         }
     }
     

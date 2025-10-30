@@ -313,6 +313,61 @@ mergeInto(LibraryManager.library, {
         }).catch(error => {
             console.error('[JSLib] Error getting leaderboard:', error);
         });
+    },
+
+    StartBattleWithEnemy: function(enemyUsernamePtr) {
+        const enemyUsername = UTF8ToString(enemyUsernamePtr);
+        
+        console.log('[JSLib] Starting battle with enemy:', enemyUsername);
+        
+        startBattleWithEnemy(enemyUsername).then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Battle start with enemy result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['BattleUIManager', 'PlayerManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnBattleStarted', result);
+                        console.log(`[JSLib] Battle start message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error starting battle with enemy:', error);
+        });
+    },
+
+    StartBattleWithEnemy: function(enemyUsernamePtr, difficultyPtr) {
+        const enemyUsername = UTF8ToString(enemyUsernamePtr);
+        const difficulty = UTF8ToString(difficultyPtr);
+        
+        console.log('[JSLib] Starting battle with specific enemy:', enemyUsername, 'at difficulty:', difficulty);
+        
+        startBattleWithEnemy(enemyUsername, difficulty).then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Battle start with enemy result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['BattleUIManager', 'PlayerManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnBattleStarted', result);
+                        console.log(`[JSLib] Battle start with enemy message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error starting battle with enemy:', error);
+        });
     }
 
 });
