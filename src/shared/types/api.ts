@@ -31,6 +31,7 @@ export type LeaderboardEntry = {
   score: number;
   level: number;
   avatarUrl: string;
+  fallbackAvatarUrls?: string[]; // Additional avatar URLs to try if primary fails
   battlesWon?: number;
   lastPlayed?: string;
 };
@@ -40,6 +41,7 @@ export type LeaderboardResponse = {
   leaderboard?: LeaderboardEntry[];
   playerRank?: number;
   totalPlayers?: number;
+  isCurrentPlayerIncluded?: boolean;
   message?: string;
 };
 

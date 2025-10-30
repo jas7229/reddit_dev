@@ -74,6 +74,66 @@ async function testGetLeaderboard() {
     }
 }
 
+// Test leaderboard management functions
+async function testCreateTestEntries() {
+    try {
+        logTestResult('Creating Test Entries', 'Loading...');
+        const response = await fetch('/api/admin/create-test-entries', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        const data = await response.json();
+        logTestResult('Create Test Entries Result', data);
+    } catch (error) {
+        logTestResult('Create Test Entries Error', error.message);
+    }
+}
+
+async function testRemoveTestEntries() {
+    try {
+        logTestResult('Removing Test Entries', 'Loading...');
+        const response = await fetch('/api/admin/remove-test-entries', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        const data = await response.json();
+        logTestResult('Remove Test Entries Result', data);
+    } catch (error) {
+        logTestResult('Remove Test Entries Error', error.message);
+    }
+}
+
+async function testDebugLeaderboard() {
+    try {
+        logTestResult('Debug Leaderboard', 'Loading...');
+        const response = await fetch('/api/admin/debug-leaderboard');
+        const data = await response.json();
+        logTestResult('Debug Leaderboard Result', data);
+    } catch (error) {
+        logTestResult('Debug Leaderboard Error', error.message);
+    }
+}
+
+async function testNuclearCleanup() {
+    try {
+        logTestResult('☢️ NUCLEAR CLEANUP', 'Wiping entire leaderboard...');
+        const response = await fetch('/api/admin/nuclear-cleanup-leaderboard', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        const data = await response.json();
+        logTestResult('Nuclear Cleanup Result', data);
+    } catch (error) {
+        logTestResult('Nuclear Cleanup Error', error.message);
+    }
+}
+
 async function testEnemyPreview(difficulty) {
     try {
         logTestResult(`Getting ${difficulty} Enemy Preview`, 'Loading...');
@@ -336,10 +396,26 @@ async function testBattleAction(action) {
     }
 }
 
+// Check if current user is admin
+async function checkAdminStatus() {
+    try {
+        const result = await window.getPlayer();
+        const data = JSON.parse(result);
+        if (data.status === 'success' && data.playerCharacter) {
+            const username = data.playerCharacter.username;
+            const allowedAdmins = ['dreamingcolors']; // Must match server list
+            return allowedAdmins.includes(username);
+        }
+    } catch (error) {
+        console.log('[Test Panel] Could not check admin status:', error);
+    }
+    return false;
+}
+
 // Set up event listeners when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
     // Wait a bit for other scripts to load
-    setTimeout(() => {
+    setTimeout(async () => {
         // Check if Unity API functions are available
         if (typeof window.getPlayer !== 'function') {
             console.error('[Test Panel] Unity API functions not loaded yet, retrying...');
@@ -368,6 +444,12 @@ window.addEventListener('DOMContentLoaded', () => {
         
         // Leaderboard button
         const leaderboardBtn = document.getElementById('test-leaderboard');
+        
+        // Test leaderboard management buttons
+        const createEntriesBtn = document.getElementById('test-create-entries');
+        const removeEntriesBtn = document.getElementById('test-remove-entries');
+        const debugLeaderboardBtn = document.getElementById('test-debug-leaderboard');
+        const nuclearCleanupBtn = document.getElementById('test-nuclear-cleanup');
         
         // Enemy preview buttons
         const previewEasyBtn = document.getElementById('test-preview-easy');
@@ -410,6 +492,25 @@ window.addEventListener('DOMContentLoaded', () => {
         
         // Leaderboard button event listener
         if (leaderboardBtn) leaderboardBtn.addEventListener('click', testGetLeaderboard);
+        
+        // Test leaderboard management button event listeners
+        if (createEntriesBtn) createEntriesBtn.addEventListener('click', testCreateTestEntries);
+        if (removeEntriesBtn) removeEntriesBtn.addEventListener('click', testRemoveTestEntries);
+        if (debugLeaderboardBtn) debugLeaderboardBtn.addEventListener('click', testDebugLeaderboard);
+        if (nuclearCleanupBtn) nuclearCleanupBtn.addEventListener('click', testNuclearCleanup);
+        
+        // Check admin status and hide admin-only buttons for non-admins
+        checkAdminStatus().then(isAdmin => {
+            if (!isAdmin) {
+                console.log('[Test Panel] Non-admin user detected, hiding admin-only buttons');
+                if (createEntriesBtn) createEntriesBtn.style.display = 'none';
+                if (removeEntriesBtn) removeEntriesBtn.style.display = 'none';
+                if (nuclearCleanupBtn) nuclearCleanupBtn.style.display = 'none';
+                // Keep debug button visible for all users
+            } else {
+                console.log('[Test Panel] Admin user detected, showing all buttons');
+            }
+        });
         
         // Reset button event listeners (custom confirmation)
         if (resetBtn) {

@@ -107,6 +107,14 @@ router.post('/api/save-score', async (req, res): Promise<void> => {
 
   try {
     const username = await reddit.getCurrentUsername();
+    if (!username) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Username required'
+      });
+      return;
+    }
+    
     const scoreKey = `score:${postId}:${username}`;
     const highScoreKey = `highscore:${postId}:${username}`;
     const leaderboardKey = `leaderboard:${postId}`;
@@ -154,9 +162,36 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
       const leaderboardHash = await redis.hGetAll('global_leaderboard');
       console.log(`[Leaderboard] Found ${Object.keys(leaderboardHash).length} entries in leaderboard hash`);
       
+      if (Object.keys(leaderboardHash).length === 0) {
+        console.log('[Leaderboard] Leaderboard hash is empty, no entries to process');
+        console.log('[Leaderboard] This means no players have saved scores yet');
+        
+        // Add current player to leaderboard if they exist
+        if (currentUsername) {
+          console.log(`[Leaderboard] Adding current player ${currentUsername} to empty leaderboard`);
+          const currentPlayer = await getOrCreatePlayer(currentUsername);
+          if (currentPlayer) {
+            // Add them to the global leaderboard with their current stats
+            const playerScore = currentPlayer.stats?.level * 100 || 100; // Use level as score fallback
+            await redis.hSet('global_leaderboard', { [currentUsername]: playerScore.toString() });
+            console.log(`[Leaderboard] Added ${currentUsername} with score ${playerScore}`);
+            
+            // Refresh the leaderboard hash
+            const refreshedHash = await redis.hGetAll('global_leaderboard');
+            Object.assign(leaderboardHash, refreshedHash);
+          }
+        }
+      }
+      
       // Process each player in the leaderboard
+      let processedCount = 0;
+      let errorCount = 0;
+      
       for (const [username, scoreStr] of Object.entries(leaderboardHash)) {
         try {
+          if (!username) continue; // Skip invalid usernames
+          
+          console.log(`[Leaderboard] Processing player: ${username} with score: ${scoreStr}`);
           const playerKey = `player:${username}`;
           const playerDataStr = await redis.get(playerKey);
           
@@ -165,19 +200,29 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
             const battlesWonKey = `battles_won:${username}`;
             const battlesWon = await redis.get(battlesWonKey);
             
+            console.log(`[Leaderboard] Found player data for ${username}: Level ${playerData.stats?.level}, Battles: ${battlesWon}`);
+            
             leaderboardEntries.push({
               username: playerData.username || username,
               score: parseInt(scoreStr) || 0,
               level: playerData.stats?.level || 1,
               avatarUrl: playerData.avatarUrl || DEFAULT_AVATAR_URL,
+              fallbackAvatarUrls: generateFallbackAvatarUrls(username, playerData.avatarUrl),
               battlesWon: battlesWon ? parseInt(battlesWon) : 0,
               lastPlayed: playerData.lastPlayed || playerData.createdAt
             });
+            processedCount++;
+          } else {
+            console.log(`[Leaderboard] No player data found for ${username}`);
+            errorCount++;
           }
         } catch (playerError) {
           console.error(`[Leaderboard] Error processing player ${username}:`, playerError);
+          errorCount++;
         }
       }
+      
+      console.log(`[Leaderboard] Processing complete: ${processedCount} successful, ${errorCount} errors`);
     } catch (hashError) {
       console.error('[Leaderboard] Error getting leaderboard hash, falling back to current player only:', hashError);
       
@@ -197,6 +242,7 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
             score: highScore ? parseInt(highScore) : 0,
             level: playerData.stats?.level || 1,
             avatarUrl: playerData.avatarUrl || DEFAULT_AVATAR_URL,
+            fallbackAvatarUrls: generateFallbackAvatarUrls(currentUsername, playerData.avatarUrl),
             battlesWon: battlesWon ? parseInt(battlesWon) : 0,
             lastPlayed: playerData.lastPlayed || playerData.createdAt
           });
@@ -204,10 +250,11 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
       }
     }
     
-    // Sort by level first, then by battles won, then by score
+    // Sort by level first, then by battles won (score is hidden/unused)
     leaderboardEntries.sort((a, b) => {
       if (a.level !== b.level) return b.level - a.level;
       if (a.battlesWon !== b.battlesWon) return b.battlesWon - a.battlesWon;
+      // Score as tiebreaker (but it's hidden in UI)
       return b.score - a.score;
     });
     
@@ -218,16 +265,34 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
       playerRank = playerIndex >= 0 ? playerIndex + 1 : -1;
     }
     
-    // Return top 20 players
-    const topPlayers = leaderboardEntries.slice(0, 20);
+    // Smart leaderboard limiting with current player inclusion
+    const maxEntries = 25; // Increased slightly to allow for current player
+    let finalLeaderboard = [];
     
-    console.log(`[Leaderboard] Returning ${topPlayers.length} players, current player rank: ${playerRank}`);
+    // Always include top players
+    const topPlayers = leaderboardEntries.slice(0, Math.min(maxEntries - 1, leaderboardEntries.length));
+    finalLeaderboard = [...topPlayers];
+    
+    // Add current player if they're not in the top entries and we have their data
+    if (currentUsername && playerRank > 0 && playerRank > topPlayers.length) {
+      const currentPlayerEntry = leaderboardEntries[playerRank - 1]; // Convert to 0-based index
+      if (currentPlayerEntry && !finalLeaderboard.some(entry => entry.username === currentUsername)) {
+        finalLeaderboard.push(currentPlayerEntry);
+        console.log(`[Leaderboard] Added current player ${currentUsername} at rank ${playerRank} to leaderboard`);
+      }
+    }
+    
+    console.log(`[Leaderboard] Returning ${finalLeaderboard.length} players, current player rank: ${playerRank}`);
+    
+    // Ensure totalPlayers is at least the number of entries we're returning
+    const calculatedTotalPlayers = Math.max(leaderboardEntries.length, finalLeaderboard.length);
     
     res.json({
       status: 'success',
-      leaderboard: topPlayers,
+      leaderboard: finalLeaderboard,
       playerRank: playerRank,
-      totalPlayers: leaderboardEntries.length
+      totalPlayers: calculatedTotalPlayers,
+      isCurrentPlayerIncluded: finalLeaderboard.some(entry => entry.username === currentUsername)
     });
     
   } catch (error) {
@@ -243,7 +308,11 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
 });
 
 // Helper function to update leaderboard when player stats change
-async function updatePlayerLeaderboard(username: string, battlesWon?: number): Promise<void> {
+async function updatePlayerLeaderboard(username: string | undefined, battlesWon?: number): Promise<void> {
+  if (!username) {
+    console.warn('[Leaderboard] No username provided to updatePlayerLeaderboard');
+    return;
+  }
   try {
     // Update battles won counter if provided
     if (battlesWon !== undefined) {
@@ -279,7 +348,7 @@ async function fetchUserAvatar(username: string): Promise<string> {
   return DEFAULT_AVATAR_URL;
 }
 
-// Helper function to get user's Snoovatar
+// Helper function to get user's Snoovatar with enhanced fallback
 async function getUserSnoovatar(username?: string): Promise<string> {
   try {
     const user = username ? await reddit.getUserByUsername(username) : await reddit.getCurrentUser();
@@ -287,13 +356,66 @@ async function getUserSnoovatar(username?: string): Promise<string> {
       const userAny = user as any;
       if (typeof userAny.getSnoovatarUrl === 'function') {
         const snoovatarUrl = await userAny.getSnoovatarUrl();
-        if (snoovatarUrl) return snoovatarUrl;
+        if (snoovatarUrl && snoovatarUrl !== DEFAULT_AVATAR_URL) {
+          console.log(`[Server] Got Snoovatar for ${username}: ${snoovatarUrl}`);
+          return snoovatarUrl;
+        }
       }
     }
   } catch (error) {
     console.error(`[Server] Error getting Snoovatar for ${username}:`, error);
   }
+  
+  // Enhanced fallback logic
+  if (username) {
+    console.log(`[Server] Using fallback avatar strategy for ${username}`);
+    
+    // Try Reddit user avatar endpoint as fallback
+    const fallbackUrl = `https://www.reddit.com/user/${username}/avatar`;
+    console.log(`[Server] Fallback avatar URL for ${username}: ${fallbackUrl}`);
+    return fallbackUrl;
+  }
+  
   return DEFAULT_AVATAR_URL;
+}
+
+// Generate fallback avatar URLs for a user
+function generateFallbackAvatarUrls(username: string, primaryUrl?: string): string[] {
+  const fallbacks: string[] = [];
+  
+  // Note: primaryUrl parameter is available for future use
+  console.log(`[Server] Generating fallback URLs for ${username} (primary: ${primaryUrl})`);
+  
+  if (username) {
+    // Reddit user avatar endpoint (often works when Snoovatar fails)
+    fallbacks.push(`https://www.reddit.com/user/${username}/avatar`);
+    
+    // Alternative Reddit avatar formats
+    fallbacks.push(`https://styles.redditmedia.com/t5_2qh1i/styles/profileIcon_${username}.png`);
+    
+    // Gravatar-style identicon (generates consistent avatar based on username)
+    const hash = simpleHash(username);
+    fallbacks.push(`https://www.gravatar.com/avatar/${hash}?d=identicon&s=128`);
+  }
+  
+  // Always include default as final fallback
+  fallbacks.push(DEFAULT_AVATAR_URL);
+  
+  return fallbacks;
+}
+
+// Simple hash function for consistent avatar generation
+function simpleHash(input: string): string {
+  if (!input) return 'default';
+  
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  return Math.abs(hash).toString(16).padStart(8, '0');
 }
 
 // Player Character System
@@ -312,8 +434,9 @@ function createNewPlayer(username: string, avatarUrl: string): any {
       attack: 10,
       defense: 5,
       skillPoints: 0,
-      gold: 0
+      gold: 100 // Start with some gold for testing
     },
+    purchasedItems: [], // Track purchased shop items
     createdAt: new Date().toISOString(),
     lastPlayed: new Date().toISOString()
   };
@@ -456,7 +579,6 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
   // Process player turn
   let playerDamage = 0;
   let playerHealing = 0;
-  let playerMessage = '';
 
   
   console.log(`[Battle] === PLAYER TURN START ===`);
@@ -482,7 +604,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
       battle.player.stats.specialPoints + spGainPerAction
     );
     
-    playerMessage = `${battle.player.username} healed for ${playerHealing} HP! (+${spGainPerAction} SP)`;
+    // Player healed for ${playerHealing} HP and gained ${spGainPerAction} SP
   } else if (playerAction === 'defend') {
     // Gain SP for defending
     battle.player.stats.specialPoints = Math.min(
@@ -490,7 +612,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
       battle.player.stats.specialPoints + spGainPerAction
     );
     
-    playerMessage = `${battle.player.username} is defending! (+${spGainPerAction} SP)`;
+    // Player is defending and gained ${spGainPerAction} SP
   } else {
     playerDamage = calculateDamage(battle.player, battle.enemy, playerAction);
     console.log(`[Battle] Player damage calculated: ${playerDamage}`);
@@ -503,14 +625,13 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
       // Check if player has enough SP for special attack
       if (battle.player.stats.specialPoints >= spCostSpecial) {
         battle.player.stats.specialPoints = Math.max(0, battle.player.stats.specialPoints - spCostSpecial);
-        playerMessage = `${battle.player.username} used special attack for ${playerDamage} damage! (-${spCostSpecial} SP)`;
+        // Player used special attack for ${playerDamage} damage and lost ${spCostSpecial} SP
       } else {
         // Not enough SP - treat as regular attack but still consume some SP
-        const availableSP = battle.player.stats.specialPoints;
         battle.player.stats.specialPoints = 0;
         playerDamage = Math.floor(playerDamage * 0.7); // Reduced damage if not enough SP
         battle.enemy.stats.hitPoints = Math.max(0, enemyHpBefore - playerDamage); // Recalculate with reduced damage
-        playerMessage = `${battle.player.username} attempted special attack but low SP! Weak attack for ${playerDamage} damage! (-${availableSP} SP)`;
+        // Player attempted special attack but had low SP, weak attack for ${playerDamage} damage
       }
     } else {
       // Regular attack - gain SP
@@ -518,7 +639,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
         battle.player.stats.maxSpecialPoints,
         battle.player.stats.specialPoints + spGainPerAction
       );
-      playerMessage = `${battle.player.username} attacked for ${playerDamage} damage! (+${spGainPerAction} SP)`;
+      // Player attacked for ${playerDamage} damage and gained ${spGainPerAction} SP
     }
   }
   
@@ -986,10 +1107,12 @@ router.post('/api/player/reset', async (_req, res): Promise<void> => {
       return;
     }
 
-    console.log(`[Server] Resetting player stats for: ${username}`);
+    // TypeScript assertion: username is guaranteed to be string after the null check
+    const validUsername: string = username;
+    console.log(`[Server] Resetting player stats for: ${validUsername}`);
     
     // Get current player to preserve username and avatar
-    const playerKey = `player:${username}`;
+    const playerKey = `player:${validUsername}`;
     const existingPlayerStr = await redis.get(playerKey);
     let avatarUrl = DEFAULT_AVATAR_URL;
     
@@ -1000,18 +1123,18 @@ router.post('/api/player/reset', async (_req, res): Promise<void> => {
     }
     
     // Create fresh player with default stats
-    const resetPlayer = createNewPlayer(username, avatarUrl);
+    const resetPlayer = createNewPlayer(validUsername, avatarUrl);
     console.log(`[Server] New reset player stats:`, resetPlayer.stats);
     
     // Save reset player
     await redis.set(playerKey, JSON.stringify(resetPlayer));
     
     // Reset battles won counter
-    const battlesWonKey = `battles_won:${username}`;
+    const battlesWonKey = `battles_won:${validUsername}`;
     await redis.set(battlesWonKey, '0');
     
     // Reset high score
-    const scoreKey = `score:${username}`;
+    const scoreKey = `score:${validUsername}`;
     await redis.set(scoreKey, '0');
     
     // Verify the reset worked
@@ -1021,7 +1144,7 @@ router.post('/api/player/reset', async (_req, res): Promise<void> => {
       console.log(`[Server] Verified reset player stats:`, verifyPlayer.stats);
     }
     
-    console.log(`[Server] Player ${username} stats reset to defaults`);
+    console.log(`[Server] Player ${validUsername} stats reset to defaults`);
     
     res.json({
       status: 'success',
@@ -1642,6 +1765,475 @@ router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
 });
 
 // Duplicate endpoint removed - using newer version above
+
+// Shop System Data
+const SHOP_ITEMS = [
+  {
+    id: 'iron_sword',
+    name: 'Iron Sword',
+    description: 'A sturdy blade that increases attack power',
+    cost: 100,
+    stats: { attack: 2 },
+    icon: '⚔️'
+  },
+  {
+    id: 'steel_shield',
+    name: 'Steel Shield',
+    description: 'Protective gear that boosts defense',
+    cost: 150,
+    stats: { defense: 3 },
+    icon: '🛡️'
+  },
+  {
+    id: 'health_potion',
+    name: 'Health Potion',
+    description: 'Permanently increases maximum health',
+    cost: 200,
+    stats: { maxHitPoints: 20 },
+    icon: '🧪'
+  },
+  {
+    id: 'power_ring',
+    name: 'Power Ring',
+    description: 'Magical ring that enhances combat abilities',
+    cost: 250,
+    stats: { attack: 1, defense: 1 },
+    icon: '💍'
+  },
+  {
+    id: 'champion_armor',
+    name: "Champion's Armor",
+    description: 'Elite armor for seasoned warriors',
+    cost: 400,
+    stats: { defense: 5, maxHitPoints: 10 },
+    icon: '🛡️'
+  }
+];
+
+// Shop API Endpoints
+router.get('/api/shop', async (_req, res): Promise<void> => {
+  try {
+    const username = await reddit.getCurrentUsername();
+    if (!username) {
+      res.status(400).json({ status: 'error', message: 'Username required' });
+      return;
+    }
+
+    const player = await getOrCreatePlayer(username);
+    
+    // Get player's purchased items
+    const purchasedItems = player.purchasedItems || [];
+    
+    // Add purchase status to shop items
+    const shopItemsWithStatus = SHOP_ITEMS.map(item => ({
+      ...item,
+      purchased: purchasedItems.includes(item.id),
+      canAfford: player.stats.gold >= item.cost
+    }));
+
+    res.json({
+      status: 'success',
+      shopItems: shopItemsWithStatus,
+      playerGold: player.stats.gold,
+      playerStats: {
+        attack: player.stats.attack,
+        defense: player.stats.defense,
+        maxHitPoints: player.stats.maxHitPoints,
+        level: player.stats.level
+      }
+    });
+  } catch (error) {
+    console.error('[Shop] Error getting shop data:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to get shop data' });
+  }
+});
+
+router.post('/api/shop/purchase', async (req, res): Promise<void> => {
+  try {
+    const username = await reddit.getCurrentUsername();
+    if (!username) {
+      res.status(400).json({ status: 'error', message: 'Username required' });
+      return;
+    }
+
+    const { itemId } = req.body;
+    if (!itemId) {
+      res.status(400).json({ status: 'error', message: 'Item ID required' });
+      return;
+    }
+
+    const player = await getOrCreatePlayer(username);
+    const item = SHOP_ITEMS.find(i => i.id === itemId);
+    
+    if (!item) {
+      res.status(404).json({ status: 'error', message: 'Item not found' });
+      return;
+    }
+
+    // Check if already purchased
+    const purchasedItems = player.purchasedItems || [];
+    if (purchasedItems.includes(itemId)) {
+      res.status(400).json({ status: 'error', message: 'Item already purchased' });
+      return;
+    }
+
+    // Check if player can afford it
+    if (player.stats.gold < item.cost) {
+      res.status(400).json({ status: 'error', message: 'Not enough gold' });
+      return;
+    }
+
+    // Process purchase
+    player.stats.gold -= item.cost;
+    player.purchasedItems = [...purchasedItems, itemId];
+
+    // Apply stat bonuses
+    Object.entries(item.stats).forEach(([stat, bonus]) => {
+      if (player.stats[stat] !== undefined) {
+        player.stats[stat] += bonus;
+        
+        // If maxHitPoints increased, also increase current hitPoints
+        if (stat === 'maxHitPoints') {
+          player.stats.hitPoints += bonus;
+        }
+      }
+    });
+
+    // Save updated player data
+    await redis.set(`player:${username}`, JSON.stringify(player));
+
+    console.log(`[Shop] ${username} purchased ${item.name} for ${item.cost} gold`);
+
+    res.json({
+      status: 'success',
+      message: `Purchased ${item.name}!`,
+      item: item,
+      newGold: player.stats.gold,
+      newStats: {
+        attack: player.stats.attack,
+        defense: player.stats.defense,
+        maxHitPoints: player.stats.maxHitPoints,
+        hitPoints: player.stats.hitPoints
+      }
+    });
+  } catch (error) {
+    console.error('[Shop] Error purchasing item:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to purchase item' });
+  }
+});
+
+// Test/Demo endpoints for leaderboard population (ADMIN ONLY)
+router.post('/api/admin/create-test-entries', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors']; // Add more admin usernames here if needed
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] CREATE TEST ENTRIES DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin privileges required' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] Creating test leaderboard entries for authorized user ${currentUsername}...`);
+    
+    // First, let's check if we can access Redis at all
+    try {
+      const testKey = 'test_redis_connection';
+      await redis.set(testKey, 'test_value');
+      const testValue = await redis.get(testKey);
+      console.log(`[Admin] Redis connection test: ${testValue}`);
+      await redis.del(testKey);
+    } catch (redisError) {
+      console.error('[Admin] Redis connection test failed:', redisError);
+      throw new Error('Redis connection failed');
+    }
+    
+    // Create test bots based on real curated enemies for authentic avatars
+    const testEntries = [
+      {
+        username: 'spez_bot',
+        realUser: 'spez',
+        level: 15,
+        battlesWon: 42,
+        score: 8500
+      },
+      {
+        username: 'kn0thing_bot', 
+        realUser: 'kn0thing',
+        level: 12,
+        battlesWon: 28,
+        score: 6200
+      },
+      {
+        username: 'PRguitarman_bot',
+        realUser: 'PRguitarman',
+        level: 20,
+        battlesWon: 67,
+        score: 12000,
+        fallbackAvatar: 'https://www.reddit.com/user/PRguitarman/avatar' // Fallback for the nyancat avatar
+      },
+      {
+        username: 'pl00h_bot',
+        realUser: 'pl00h',
+        level: 8,
+        battlesWon: 15,
+        score: 2400
+      },
+      {
+        username: 'lift_ticket_bot',
+        realUser: 'lift_ticket',
+        level: 18,
+        battlesWon: 55,
+        score: 9800
+      },
+      {
+        username: 'artofbrentos_bot',
+        realUser: 'artofbrentos',
+        level: 14,
+        battlesWon: 38,
+        score: 7200
+      },
+      {
+        username: 'shittymorph_bot',
+        realUser: 'shittymorph',
+        level: 22,
+        battlesWon: 89,
+        score: 15600
+      }
+    ];
+    
+    for (const entry of testEntries) {
+      // Get the real user's avatar for authentic look
+      console.log(`[Admin] Fetching avatar for ${entry.realUser}...`);
+      let realAvatarUrl = await getUserSnoovatar(entry.realUser);
+      console.log(`[Admin] Fetched avatar for ${entry.realUser}: ${realAvatarUrl}`);
+      
+      // Check if avatar URL looks valid, use fallback if available
+      if ((!realAvatarUrl || realAvatarUrl === DEFAULT_AVATAR_URL) && entry.fallbackAvatar) {
+        console.log(`[Admin] Using fallback avatar for ${entry.realUser}: ${entry.fallbackAvatar}`);
+        realAvatarUrl = entry.fallbackAvatar;
+      } else if (!realAvatarUrl || realAvatarUrl === DEFAULT_AVATAR_URL) {
+        console.log(`[Admin] WARNING: ${entry.realUser} returned default/invalid avatar, using default`);
+        realAvatarUrl = DEFAULT_AVATAR_URL;
+      }
+      
+      // Create player data
+      const playerData = {
+        username: entry.username,
+        avatarUrl: realAvatarUrl,
+        stats: {
+          level: entry.level,
+          experience: entry.level * 100,
+          experienceToNext: (entry.level + 1) * 100,
+          hitPoints: 100 + (entry.level * 20),
+          maxHitPoints: 100 + (entry.level * 20),
+          specialPoints: 20 + (entry.level * 5),
+          maxSpecialPoints: 20 + (entry.level * 5),
+          attack: 10 + (entry.level * 2),
+          defense: 5 + entry.level,
+          skillPoints: 0,
+          gold: entry.level * 50
+        },
+        createdAt: new Date().toISOString(),
+        lastPlayed: new Date().toISOString()
+      };
+      
+      // Store player data
+      try {
+        await redis.set(`player:${entry.username}`, JSON.stringify(playerData));
+        console.log(`[Admin] ✓ Stored player data for ${entry.username}`);
+      } catch (error) {
+        console.error(`[Admin] ✗ Failed to store player data for ${entry.username}:`, error);
+        throw error;
+      }
+      
+      // Add to leaderboard
+      try {
+        await redis.hSet('global_leaderboard', { [entry.username]: entry.score.toString() });
+        console.log(`[Admin] ✓ Added ${entry.username} to leaderboard with score ${entry.score}`);
+      } catch (error) {
+        console.error(`[Admin] ✗ Failed to add ${entry.username} to leaderboard:`, error);
+        throw error;
+      }
+      
+      // Set battles won
+      try {
+        await redis.set(`battles_won:${entry.username}`, entry.battlesWon.toString());
+        console.log(`[Admin] ✓ Set battles won for ${entry.username}: ${entry.battlesWon}`);
+      } catch (error) {
+        console.error(`[Admin] ✗ Failed to set battles won for ${entry.username}:`, error);
+        throw error;
+      }
+      
+      console.log(`[Admin] ✓ Created test entry: ${entry.username} (Level ${entry.level}, ${entry.battlesWon} battles won)`);
+    }
+    
+    // Verify the entries were created
+    console.log('[Admin] Verifying test entries were created...');
+    const leaderboardHash = await redis.hGetAll('global_leaderboard');
+    console.log(`[Admin] Leaderboard hash now contains ${Object.keys(leaderboardHash).length} entries:`, Object.keys(leaderboardHash));
+    
+    res.json({
+      status: 'success',
+      message: `Created ${testEntries.length} test leaderboard entries`,
+      entries: testEntries.map(e => ({ username: e.username, level: e.level, battlesWon: e.battlesWon })),
+      verification: {
+        leaderboardHashSize: Object.keys(leaderboardHash).length,
+        leaderboardEntries: Object.keys(leaderboardHash)
+      }
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error creating test entries:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to create test entries' });
+  }
+});
+
+router.delete('/api/admin/remove-test-entries', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors']; // Add more admin usernames here if needed
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] REMOVE TEST ENTRIES DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin privileges required' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] Removing test leaderboard entries for authorized user ${currentUsername}...`);
+    
+    const testUsernames = [
+      'spez_bot',
+      'kn0thing_bot',
+      'PRguitarman_bot',
+      'pl00h_bot',
+      'lift_ticket_bot',
+      'artofbrentos_bot',
+      'shittymorph_bot'
+    ];
+    
+    for (const username of testUsernames) {
+      // Remove player data
+      await redis.del(`player:${username}`);
+      
+      // Remove from leaderboard
+      await redis.hDel('global_leaderboard', [username]);
+      
+      // Remove battles won
+      await redis.del(`battles_won:${username}`);
+      
+      console.log(`[Admin] Removed test entry: ${username}`);
+    }
+    
+    // Also clean up the corrupted character entries (0-17 from "battle_veteran_bot")
+    console.log('[Admin] Cleaning up corrupted character entries...');
+    for (let i = 0; i < 20; i++) {
+      try {
+        await redis.hDel('global_leaderboard', [i.toString()]);
+      } catch (error) {
+        // Ignore errors for non-existent keys
+      }
+    }
+    
+    res.json({
+      status: 'success',
+      message: `Removed ${testUsernames.length} test leaderboard entries`,
+      removed: testUsernames
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error removing test entries:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to remove test entries' });
+  }
+});
+
+// One-time nuclear cleanup endpoint to fix corrupted leaderboard (ADMIN ONLY)
+router.delete('/api/admin/nuclear-cleanup-leaderboard', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors']; // Add more admin usernames here if needed
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] NUCLEAR CLEANUP DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin privileges required' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] NUCLEAR CLEANUP: Authorized user ${currentUsername} wiping entire leaderboard hash...`);
+    
+    // Get current leaderboard to see what we're deleting
+    const currentHash = await redis.hGetAll('global_leaderboard');
+    console.log(`[Admin] Current leaderboard has ${Object.keys(currentHash).length} entries:`, Object.keys(currentHash));
+    
+    // Delete the entire leaderboard hash
+    await redis.del('global_leaderboard');
+    console.log('[Admin] ✓ Deleted entire global_leaderboard hash');
+    
+    // Verify it's gone
+    const afterHash = await redis.hGetAll('global_leaderboard');
+    console.log(`[Admin] After cleanup, leaderboard has ${Object.keys(afterHash).length} entries`);
+    
+    res.json({
+      status: 'success',
+      message: `Nuclear cleanup complete - entire leaderboard wiped by ${currentUsername}`,
+      deletedEntries: Object.keys(currentHash),
+      deletedCount: Object.keys(currentHash).length,
+      authorizedBy: currentUsername
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error during nuclear cleanup:', error);
+    res.status(500).json({ status: 'error', message: 'Nuclear cleanup failed' });
+  }
+});
+
+// Debug endpoint to check Redis data
+router.get('/api/admin/debug-leaderboard', async (_req, res): Promise<void> => {
+  try {
+    console.log('[Debug] Checking leaderboard data...');
+    
+    // Get leaderboard hash
+    const leaderboardHash = await redis.hGetAll('global_leaderboard');
+    console.log('[Debug] Leaderboard hash:', leaderboardHash);
+    
+    // Check each entry
+    const debugData = [];
+    for (const [username, score] of Object.entries(leaderboardHash)) {
+      const playerData = await redis.get(`player:${username}`);
+      const battlesWon = await redis.get(`battles_won:${username}`);
+      
+      debugData.push({
+        username,
+        score,
+        hasPlayerData: !!playerData,
+        playerDataPreview: playerData ? JSON.parse(playerData).stats : null,
+        battlesWon
+      });
+    }
+    
+    res.json({
+      status: 'success',
+      leaderboardHashSize: Object.keys(leaderboardHash).length,
+      entries: debugData
+    });
+    
+  } catch (error) {
+    console.error('[Debug] Error checking leaderboard:', error);
+    res.status(500).json({ status: 'error', message: 'Debug failed' });
+  }
+});
 
 // Use router middleware
 app.use(router);

@@ -368,6 +368,56 @@ mergeInto(LibraryManager.library, {
         }).catch(error => {
             console.error('[JSLib] Error starting battle with enemy:', error);
         });
+    },
+
+    GetShopData: function() {
+        console.log('[JSLib] Getting shop data');
+        
+        getShopData().then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Shop data result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['ShopManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnShopDataReceived', result);
+                        console.log(`[JSLib] Shop data message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error getting shop data:', error);
+        });
+    },
+
+    PurchaseItem: function(itemIdPtr) {
+        const itemId = UTF8ToString(itemIdPtr);
+        
+        console.log('[JSLib] Purchasing item:', itemId);
+        
+        purchaseItem(itemId).then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Purchase result:', data);
+            
+            const possibleNames = ['ShopManager', 'GameManager', 'Manager'];
+            
+            for (let name of possibleNames) {
+                try {
+                    SendMessage(name, 'OnItemPurchased', result);
+                    console.log(`[JSLib] Purchase result message sent to: ${name}`);
+                    break;
+                } catch (e) {
+                    console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error purchasing item:', error);
+        });
     }
 
 });

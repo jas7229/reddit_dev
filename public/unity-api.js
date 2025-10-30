@@ -80,13 +80,33 @@ window.UnityDevvitAPI = {
     },
 
     // Get player character data
-    async getPlayer() {
+    async getPlayer(retryCount = 0) {
         try {
             const response = await fetch('/api/player');
+            
+            // Handle 401 authentication errors with retry
+            if (response.status === 401 && retryCount < 3) {
+                console.warn(`[Unity API] Auth error (401), retrying in ${Math.pow(2, retryCount)} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+                return this.getPlayer(retryCount + 1);
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
             const data = await response.json();
             return JSON.stringify(data);
         } catch (error) {
             console.error('Error getting player:', error);
+            
+            // If it's a JSON parsing error and we haven't retried much, try again
+            if (error.message.includes('Unexpected token') && retryCount < 2) {
+                console.warn('[Unity API] JSON parse error, retrying...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return this.getPlayer(retryCount + 1);
+            }
+            
             return JSON.stringify({ status: 'error', message: error.message });
         }
     },
@@ -160,7 +180,7 @@ window.UnityDevvitAPI = {
     },
 
     // Battle System Functions
-    async startBattle() {
+    async startBattle(retryCount = 0) {
         try {
             console.log('[Unity API] Starting battle...');
             const response = await fetch('/api/battle/start', {
@@ -169,6 +189,14 @@ window.UnityDevvitAPI = {
                     'Content-Type': 'application/json',
                 }
             });
+            
+            // Handle 401 authentication errors with retry
+            if (response.status === 401 && retryCount < 3) {
+                console.warn(`[Unity API] Auth error starting battle, retrying in ${Math.pow(2, retryCount)} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+                return this.startBattle(retryCount + 1);
+            }
+            
             console.log('[Unity API] Battle start response status:', response.status);
             const data = await response.json();
             console.log('[Unity API] Battle start data:', data);
@@ -186,6 +214,14 @@ window.UnityDevvitAPI = {
             return JSON.stringify(data);
         } catch (error) {
             console.error('Error starting battle:', error);
+            
+            // Retry on JSON parse errors
+            if (error.message.includes('Unexpected token') && retryCount < 2) {
+                console.warn('[Unity API] JSON parse error in battle start, retrying...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return this.startBattle(retryCount + 1);
+            }
+            
             return JSON.stringify({ status: 'error', message: error.message });
         }
     },
@@ -371,6 +407,39 @@ window.startBattleWithEnemy = async function(enemyUsername, difficulty = 'medium
         return JSON.stringify(data);
     } catch (error) {
         console.error('Error starting battle with enemy:', error);
+        return JSON.stringify({ status: 'error', message: error.message });
+    }
+};
+
+// Shop System Functions
+window.getShopData = async function() {
+    try {
+        console.log('[Unity API] Getting shop data...');
+        const response = await fetch('/api/shop');
+        const data = await response.json();
+        console.log('[Unity API] Shop data received:', data);
+        return JSON.stringify(data);
+    } catch (error) {
+        console.error('[Unity API] Error getting shop data:', error);
+        return JSON.stringify({ status: 'error', message: error.message });
+    }
+};
+
+window.purchaseItem = async function(itemId) {
+    try {
+        console.log('[Unity API] Purchasing item:', itemId);
+        const response = await fetch('/api/shop/purchase', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ itemId })
+        });
+        const data = await response.json();
+        console.log('[Unity API] Purchase result:', data);
+        return JSON.stringify(data);
+    } catch (error) {
+        console.error('[Unity API] Error purchasing item:', error);
         return JSON.stringify({ status: 'error', message: error.message });
     }
 };
