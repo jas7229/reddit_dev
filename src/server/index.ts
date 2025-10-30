@@ -120,6 +120,8 @@ router.post('/api/save-score', async (req, res): Promise<void> => {
       await redis.set(highScoreKey, score.toString());
       // Update leaderboard hash with new high score
       await redis.hSet(leaderboardKey, { [username || 'anonymous']: score.toString() });
+      // Also update global leaderboard for cross-post leaderboard
+      await redis.hSet('global_leaderboard', { [username || 'anonymous']: score.toString() });
     }
     
     res.json({
@@ -147,31 +149,25 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
     const leaderboardEntries = [];
     
     try {
-      // Try to get all player keys
-      console.log('[Leaderboard] Attempting to get all player keys...');
-      const playerKeys = await redis.keys('player:*');
-      console.log(`[Leaderboard] Found ${playerKeys.length} player keys:`, playerKeys);
+      // Devvit Redis doesn't support keys() method, so we'll use a leaderboard hash instead
+      console.log('[Leaderboard] Getting leaderboard from hash...');
+      const leaderboardHash = await redis.hGetAll('global_leaderboard');
+      console.log(`[Leaderboard] Found ${Object.keys(leaderboardHash).length} entries in leaderboard hash`);
       
-      // Process each player
-      for (const playerKey of playerKeys) {
+      // Process each player in the leaderboard
+      for (const [username, scoreStr] of Object.entries(leaderboardHash)) {
         try {
+          const playerKey = `player:${username}`;
           const playerDataStr = await redis.get(playerKey);
+          
           if (playerDataStr) {
             const playerData = JSON.parse(playerDataStr);
-            const username = playerKey.replace('player:', '');
-            
-            // Get additional data
-            const scoreKey = `score:${username}`;
             const battlesWonKey = `battles_won:${username}`;
-            
-            const [highScore, battlesWon] = await Promise.all([
-              redis.get(scoreKey),
-              redis.get(battlesWonKey)
-            ]);
+            const battlesWon = await redis.get(battlesWonKey);
             
             leaderboardEntries.push({
               username: playerData.username || username,
-              score: highScore ? parseInt(highScore) : 0,
+              score: parseInt(scoreStr) || 0,
               level: playerData.stats?.level || 1,
               avatarUrl: playerData.avatarUrl || DEFAULT_AVATAR_URL,
               battlesWon: battlesWon ? parseInt(battlesWon) : 0,
@@ -179,11 +175,11 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
             });
           }
         } catch (playerError) {
-          console.error(`[Leaderboard] Error processing player ${playerKey}:`, playerError);
+          console.error(`[Leaderboard] Error processing player ${username}:`, playerError);
         }
       }
-    } catch (keysError) {
-      console.error('[Leaderboard] Error getting player keys, falling back to current player only:', keysError);
+    } catch (hashError) {
+      console.error('[Leaderboard] Error getting leaderboard hash, falling back to current player only:', hashError);
       
       // Fallback: just get current player
       if (currentUsername) {
@@ -236,10 +232,12 @@ router.get('/api/leaderboard', async (_req, res): Promise<void> => {
     
   } catch (error) {
     console.error('[Leaderboard] Error getting leaderboard:', error);
-    console.error('[Leaderboard] Error stack:', error.stack);
+    if (error instanceof Error) {
+      console.error('[Leaderboard] Error stack:', error.stack);
+    }
     res.status(500).json({
       status: 'error',
-      message: `Failed to get leaderboard: ${error.message}`
+      message: `Failed to get leaderboard: ${error instanceof Error ? error.message : 'Unknown error'}`
     });
   }
 });
@@ -252,10 +250,12 @@ async function updatePlayerLeaderboard(username: string, battlesWon?: number): P
       const battlesWonKey = `battles_won:${username}`;
       await redis.set(battlesWonKey, battlesWon.toString());
       console.log(`[Leaderboard] Updated battles won for ${username}: ${battlesWon}`);
+      
+      // Add player to global leaderboard hash if not already there
+      const currentScore = await redis.get(`score:${username}`) || '0';
+      await redis.hSet('global_leaderboard', { [username]: currentScore });
     }
     
-    // The leaderboard endpoint will automatically pull fresh data from player records
-    // so we don't need to maintain a separate leaderboard cache
     console.log(`[Leaderboard] Player ${username} stats updated`);
     
   } catch (error) {
@@ -365,15 +365,15 @@ function calculateDamage(attacker: any, defender: any, action: string): number {
   
   switch (action) {
     case 'attack':
-      baseDamage = attacker.stats.attack;
+      baseDamage = Math.floor(attacker.stats.attack * 0.75); // Reduced regular attack power (25% weaker)
       break;
     case 'special':
-      baseDamage = Math.floor(attacker.stats.attack * 1.5); // 50% more damage
+      baseDamage = Math.floor(attacker.stats.attack * 1.5); // 50% more damage (unchanged)
       break;
     case 'defend':
       return 0; // Defending does no damage
     default:
-      baseDamage = attacker.stats.attack;
+      baseDamage = Math.floor(attacker.stats.attack * 0.75); // Reduced default attack power
   }
   
   // Add some randomness (80-120% of base damage)
@@ -395,14 +395,19 @@ function getEnemyAction(): string {
 async function createBattle(player: any, enemy: any): Promise<any> {
   const battleId = generateBattleId();
   
-  // Reset SP to 0 at battle start for strategic SP system
+  // Prepare battle copies of player and enemy
   const battlePlayer = { ...player };
   const battleEnemy = { ...enemy };
   
+  // Reset SP to 0 at battle start for strategic SP system
   battlePlayer.stats.specialPoints = 0;
   battleEnemy.stats.specialPoints = 0;
   
-  console.log(`[Battle] SP reset to 0 for both players at battle start`);
+  // Restore HP to full for both players at battle start
+  battlePlayer.stats.hitPoints = battlePlayer.stats.maxHitPoints;
+  battleEnemy.stats.hitPoints = battleEnemy.stats.maxHitPoints;
+  
+  console.log(`[Battle] Battle start - HP restored to full, SP reset to 0 for both players`);
   
   const battleState = {
     battleId,
@@ -452,6 +457,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
   let playerDamage = 0;
   let playerHealing = 0;
   let playerMessage = '';
+
   
   console.log(`[Battle] === PLAYER TURN START ===`);
   console.log(`[Battle] Player turn: ${playerAction}`);
@@ -459,7 +465,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
   console.log(`[Battle] Enemy HP before: ${battle.enemy.stats.hitPoints}/${battle.enemy.stats.maxHitPoints}`);
   
   // SP charging system: gain SP from regular actions, lose SP from special attacks
-  const spGainPercent = 0.2; // Gain 20% of max SP per action
+  const spGainPercent = 0.45; // Gain 45% of max SP per action (increased for faster special attacks)
   const spGainPerAction = Math.max(1, Math.floor(battle.player.stats.maxSpecialPoints * spGainPercent));
   const spCostSpecial = Math.floor(battle.player.stats.maxSpecialPoints * 0.8); // Special costs 80% of max SP
   
@@ -539,7 +545,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
     };
     
     // Update battles won counter for leaderboard
-    const playerUsername = battle.player.username;
+    const playerUsername = battle.player.username || 'anonymous';
     const battlesWonKey = `battles_won:${playerUsername}`;
     const currentWins = await redis.get(battlesWonKey);
     const newWins = currentWins ? parseInt(currentWins) + 1 : 1;
@@ -613,7 +619,7 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
     };
     
     // Update battles won counter for leaderboard
-    const playerUsername = battle.player.username;
+    const playerUsername = battle.player.username || 'anonymous';
     const battlesWonKey = `battles_won:${playerUsername}`;
     const currentWins = await redis.get(battlesWonKey);
     const newWins = currentWins ? parseInt(currentWins) + 1 : 1;
@@ -640,6 +646,171 @@ async function processBattleTurn(battleId: string, playerAction: string): Promis
     battle.player.stats.gold += goldGain;
   // Enemy turn code commented out to fix HP bug
   */
+}
+
+// Enemy Preview/Selection System
+router.post('/api/enemy/preview', async (req, res): Promise<void> => {
+  try {
+    const currentUsername = await reddit.getCurrentUsername();
+    const currentPlayer = await getOrCreatePlayer(currentUsername || 'anonymous');
+    const { difficulty = 'medium' } = req.body;
+    
+    console.log(`[Enemy Preview] Generating ${difficulty} enemy for level ${currentPlayer.stats.level} player`);
+    
+    // Generate enemy based on difficulty
+    const enemy = await generateEnemyByDifficulty(currentPlayer, difficulty);
+    
+    // Calculate expected rewards
+    const levelDifference = enemy.stats.level - currentPlayer.stats.level;
+    const baseExperience = enemy.stats.level * 25;
+    const baseGold = enemy.stats.level * 15;
+    
+    let riskLevel = 'balanced';
+    if (levelDifference >= 2) riskLevel = 'high';
+    else if (levelDifference <= -2) riskLevel = 'low';
+    
+    res.json({
+      status: 'success',
+      enemy,
+      difficulty,
+      levelDifference,
+      expectedRewards: {
+        baseExperience,
+        baseGold,
+        riskLevel
+      }
+    });
+    
+  } catch (error) {
+    console.error('[Enemy Preview] Error:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to generate enemy preview' });
+  }
+});
+
+// Get random enemy (legacy endpoint)
+router.get('/api/enemy', async (_req, res): Promise<void> => {
+  try {
+    const currentUsername = await reddit.getCurrentUsername();
+    const currentPlayer = await getOrCreatePlayer(currentUsername || 'anonymous');
+    
+    // Use medium difficulty as default
+    const enemy = await generateEnemyByDifficulty(currentPlayer, 'medium');
+    
+    res.json({
+      status: 'success',
+      enemy
+    });
+    
+  } catch (error) {
+    console.error('[Enemy] Error getting random enemy:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to get enemy' });
+  }
+});
+
+// Battle start endpoint
+router.post('/api/battle/start', async (req, res): Promise<void> => {
+  try {
+    const currentUsername = await reddit.getCurrentUsername();
+    const currentPlayer = await getOrCreatePlayer(currentUsername || 'anonymous');
+    const { difficulty = 'medium' } = req.body;
+    
+    console.log(`[Battle Start] Starting ${difficulty} battle for ${currentUsername}`);
+    
+    // Generate enemy for battle
+    const enemy = await generateEnemyByDifficulty(currentPlayer, difficulty);
+    
+    // Create battle
+    const battleState = await createBattle(currentPlayer, enemy);
+    
+    res.json({
+      status: 'success',
+      battleState,
+      message: `Battle started against ${enemy.username}!`
+    });
+    
+  } catch (error) {
+    console.error('[Battle Start] Error:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to start battle' });
+  }
+});
+
+// Generate enemy with specific difficulty
+async function generateEnemyByDifficulty(player: any, difficulty: string): Promise<any> {
+  const playerLevel = player.stats.level;
+  let enemyLevel: number;
+  
+  // Determine enemy level based on difficulty
+  switch (difficulty) {
+    case 'easy':
+      enemyLevel = Math.max(1, playerLevel - Math.floor(Math.random() * 2) - 1); // 1-2 levels lower
+      break;
+    case 'hard':
+      enemyLevel = playerLevel + Math.floor(Math.random() * 3) + 1; // 1-3 levels higher
+      break;
+    case 'medium':
+    default:
+      enemyLevel = Math.max(1, playerLevel + Math.floor(Math.random() * 3) - 1); // -1 to +2 levels
+      break;
+  }
+  
+  // CURATED ENEMY LIST - DO NOT REPLACE - These users have verified custom Snoo avatars
+  const famousEnemies = [
+    // Reddit Legends
+    'spez', 'kn0thing',
+    
+    // Devvit Team Members  
+    'pl00h', 'lift_ticket',
+    
+    // Reddit Staff
+    'KeyserSosa', 'powerlanguage', 'bsimpson',
+    
+    // Reddit Celebrities
+    'shittymorph',
+    
+    // Avatar Artists (Verified Custom Avatars)
+    'penguitt', 'PRguitarman', 'artofbrentos', 'salt_the_wizard', 'StutterVoid', 
+    'iamdeirdre', 'Hoppy_Doodle', 'Tandizojere', 'kinnester', 'artofmajon', 
+    'tinymischiefs', 'kristyglas', 'WorstTwitchEver', 'Qugmo', 'sabet76', 
+    'Conall-in-Space', 'TheFattyBagz', 'giftedocean', 'NatAltDesign', '_ships', 
+    'OniCowboy', 'tfoust10',
+    
+    // Additional Avatar Artists
+    'mantrakid', 'sixthrodeo', 'PotatoNahh', 'aerynlynne', 'AkuDreams', 'ImAlekBan',
+    'AliciaFreemanDesigns', 'OhBenny', 'anaeho', 'ChristineMendoza', 'Substantial-Law-910',
+    'AVIRENFT', 'NateBearArt', 'bodegacatceo', 'Bumblebon', 'BunnyPrecious',
+    'Canetoonist', 'ChipperdoodlesComic', 'Civort', 'Cool_Cats_NFT',
+    'entropyre', 'Potstar1', 'Frayz', 'The_GeoffreyK', 'GlowyMushroom', 'GwynnArts',
+    'slugfive', 'Jenniichii', 'hessicajansen', 'Josh_Brandon', 'karonuke', 'killjoyink',
+    'Koyangi2018', 'anondoodles', 'NaoTajigen', 'Pollila1', 'OpenFren', 'Oue',
+    'phobox91', 'razbonix', 'rocketMoonApe', 'RyeHardyDesigns', 'rylar', 'Saiyre-Art_Official',
+    'Shadowjom', 'darth-weedy', 'Wurlawyrm'
+  ];
+  
+  const randomEnemy = famousEnemies[Math.floor(Math.random() * famousEnemies.length)];
+  const enemyAvatarUrl = await getUserSnoovatar(randomEnemy);
+  
+  // Create enemy stats based on level
+  const enemyCharacter = {
+    username: randomEnemy,
+    avatarUrl: enemyAvatarUrl,
+    stats: {
+      level: enemyLevel,
+      experience: 0,
+      experienceToNext: enemyLevel * 100,
+      hitPoints: 80 + (enemyLevel * 20), // Slightly lower base HP than players
+      maxHitPoints: 80 + (enemyLevel * 20),
+      specialPoints: 15 + (enemyLevel * 5),
+      maxSpecialPoints: 15 + (enemyLevel * 5),
+      attack: 8 + (enemyLevel * 3),
+      defense: 3 + (enemyLevel * 2),
+      skillPoints: 0,
+      gold: enemyLevel * 10
+    },
+    isNPC: true
+  };
+  
+  console.log(`[Enemy Preview] Generated ${difficulty} enemy: ${randomEnemy} (Level ${enemyLevel})`);
+  return enemyCharacter;
 }
 
 // Test endpoint to check profile fetching
@@ -761,23 +932,21 @@ router.get('/api/enemy', async (_req, res): Promise<void> => {
     const currentPlayer = await getOrCreatePlayer(currentUsername || 'anonymous');
     
     let randomEnemy;
-    let isRealPlayer = false;
     
     // 60% chance to fight a real player from leaderboard, 40% chance for famous accounts
     if (Math.random() < 0.6) {
       try {
-        // Get real players from the database
-        const playerKeys = await redis.keys('player:*');
+        // Get real players from the leaderboard hash
+        const leaderboardHash = await redis.hGetAll('global_leaderboard');
         const realPlayers = [];
         
-        for (const playerKey of playerKeys) {
-          const playerDataStr = await redis.get(playerKey);
-          if (playerDataStr) {
-            const playerData = JSON.parse(playerDataStr);
-            const username = playerKey.replace('player:', '');
-            
-            // Don't fight yourself
-            if (username !== currentUsername) {
+        for (const [username, scoreStr] of Object.entries(leaderboardHash)) {
+          // Don't fight yourself
+          if (username !== currentUsername) {
+            const playerKey = `player:${username}`;
+            const playerDataStr = await redis.get(playerKey);
+            if (playerDataStr) {
+              const playerData = JSON.parse(playerDataStr);
               realPlayers.push({
                 username: playerData.username || username,
                 level: playerData.stats?.level || 1,
@@ -796,9 +965,10 @@ router.get('/api/enemy', async (_req, res): Promise<void> => {
           const candidatePlayers = realPlayers.slice(0, Math.min(5, realPlayers.length));
           const selectedPlayer = candidatePlayers[Math.floor(Math.random() * candidatePlayers.length)];
           
-          randomEnemy = selectedPlayer.username;
-          isRealPlayer = true;
-          console.log(`[Enemy] Selected real player: ${randomEnemy} (Level ${selectedPlayer.level})`);
+          if (selectedPlayer) {
+            randomEnemy = selectedPlayer.username;
+            console.log(`[Enemy] Selected real player: ${randomEnemy} (Level ${selectedPlayer.level})`);
+          }
         }
       } catch (error) {
         console.error('[Enemy] Error getting real players:', error);
@@ -888,21 +1058,19 @@ router.post('/api/enemy/preview', async (req, res): Promise<void> => {
     
     // Get enemy using existing logic
     let randomEnemy;
-    let isRealPlayer = false;
     
     // 60% chance for real player, 40% for famous accounts
     if (Math.random() < 0.6) {
       try {
-        const playerKeys = await redis.keys('player:*');
+        const leaderboardHash = await redis.hGetAll('global_leaderboard');
         const realPlayers = [];
         
-        for (const playerKey of playerKeys) {
-          const playerDataStr = await redis.get(playerKey);
-          if (playerDataStr) {
-            const playerData = JSON.parse(playerDataStr);
-            const username = playerKey.replace('player:', '');
-            
-            if (username !== currentUsername) {
+        for (const [username, scoreStr] of Object.entries(leaderboardHash)) {
+          if (username !== currentUsername) {
+            const playerKey = `player:${username}`;
+            const playerDataStr = await redis.get(playerKey);
+            if (playerDataStr) {
+              const playerData = JSON.parse(playerDataStr);
               realPlayers.push({
                 username: playerData.username || username,
                 level: playerData.stats?.level || 1,
@@ -926,8 +1094,9 @@ router.post('/api/enemy/preview', async (req, res): Promise<void> => {
           
           if (filteredPlayers.length > 0) {
             const selectedPlayer = filteredPlayers[Math.floor(Math.random() * filteredPlayers.length)];
-            randomEnemy = selectedPlayer.username;
-            isRealPlayer = true;
+            if (selectedPlayer) {
+              randomEnemy = selectedPlayer.username;
+            }
           }
         }
       } catch (error) {
@@ -986,7 +1155,7 @@ router.post('/api/enemy/preview', async (req, res): Promise<void> => {
         skillPoints: 0,
         gold: 0
       },
-      isNPC: !isRealPlayer
+      isNPC: true
     };
     
     // Calculate expected rewards
@@ -1038,16 +1207,15 @@ router.post('/api/battle/start', async (_req, res): Promise<void> => {
     // 60% chance to fight a real player, 40% chance for famous accounts
     if (Math.random() < 0.6) {
       try {
-        const playerKeys = await redis.keys('player:*');
+        const leaderboardHash = await redis.hGetAll('global_leaderboard');
         const realPlayers = [];
         
-        for (const playerKey of playerKeys) {
-          const playerDataStr = await redis.get(playerKey);
-          if (playerDataStr) {
-            const playerData = JSON.parse(playerDataStr);
-            const enemyUsername = playerKey.replace('player:', '');
-            
-            if (enemyUsername !== username) {
+        for (const [enemyUsername, scoreStr] of Object.entries(leaderboardHash)) {
+          if (enemyUsername !== username) {
+            const playerKey = `player:${enemyUsername}`;
+            const playerDataStr = await redis.get(playerKey);
+            if (playerDataStr) {
+              const playerData = JSON.parse(playerDataStr);
               realPlayers.push({
                 username: playerData.username || enemyUsername,
                 level: playerData.stats?.level || 1
@@ -1060,7 +1228,9 @@ router.post('/api/battle/start', async (_req, res): Promise<void> => {
           realPlayers.sort((a, b) => Math.abs(a.level - player.stats.level) - Math.abs(b.level - player.stats.level));
           const candidatePlayers = realPlayers.slice(0, Math.min(5, realPlayers.length));
           const selectedPlayer = candidatePlayers[Math.floor(Math.random() * candidatePlayers.length)];
-          randomEnemy = selectedPlayer.username;
+          if (selectedPlayer) {
+            randomEnemy = selectedPlayer.username;
+          }
         }
       } catch (error) {
         console.error('[Battle] Error getting real players for battle:', error);
@@ -1257,7 +1427,6 @@ router.post('/api/battle/enemy-turn', async (req, res): Promise<void> => {
           enemyMessage = `${battle.enemy.username} used special attack for ${enemyDamage} damage!`;
         } else {
           // Not enough SP - weaker attack
-          const availableSP = battle.enemy.stats.specialPoints;
           battle.enemy.stats.specialPoints = 0;
           enemyDamage = Math.floor(enemyDamage * 0.7);
           battle.player.stats.hitPoints = Math.max(0, playerHpBefore - enemyDamage);

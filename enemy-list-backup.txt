@@ -1,0 +1,132 @@
+REDDIT BATTLE GAME - ENEMY LIST BACKUP
+==========================================
+
+Current Enemy List (70+ entries):
+----------------------------------
+
+Reddit Founders & Staff:
+- spez
+- kn0thing
+- KeyserSosa
+- powerlanguage
+- bsimpson
+
+Devvit Team Members:
+- pl00h
+- lift_ticket
+- mantrakid
+- sixthrodeo
+
+Popular Reddit Avatar Artists:
+- penguitt
+- PRguitarman
+- artofbrentos
+- salt_the_wizard
+- StutterVoid
+- iamdeirdre
+- Hoppy_Doodle
+- Tandizojere
+- kinnester
+- artofmajon
+- tinymischiefs
+- kristyglas
+- WorstTwitchEver
+- Qugmo
+- sabet76
+- Conall-in-Space
+- TheFattyBagz
+- giftedocean
+- NatAltDesign
+- _ships
+- OniCowboy
+- tfoust10
+- PotatoNahh
+- aerynlynne
+- AkuDreams
+- ImAlekBan
+- AliciaFreemanDesigns
+- OhBenny
+- anaeho
+- ChristineMendoza
+- Substantial-Law-910
+- AVIRENFT
+- NateBearArt
+- bodegacatceo
+- Bumblebon
+- BunnyPrecious
+- Canetoonist
+- ChipperdoodlesComic
+- Civort
+- Cool_Cats_NFT
+- entropyre
+- Potstar1
+- Frayz
+- The_GeoffreyK
+- GlowyMushroom
+- GwynnArts
+- slugfive
+- Jenniichii
+- hessicajansen
+- Josh_Brandon
+- karonuke
+- killjoyink
+- Koyangi2018
+- anondoodles
+- NaoTajigen
+- Pollila1
+- OpenFren
+- Oue
+- phobox91
+- razbonix
+- rocketMoonApe
+- RyeHardyDesigns
+- rylar
+- Saiyre-Art_Official
+- Shadowjom
+- darth-weedy
+- Wurlawyrm
+
+Popular Reddit Personalities:
+- shittymorph
+- GallowBoob
+- Poem_for_your_sprog
+- AWildSketchAppeared
+- Shitty_Watercolour
+- Sure_Ill_Draw_That
+- hallucinates_owls
+
+Gaming & Tech Personalities:
+- notch
+- xNotch
+- dinnerbone
+- Grumm
+- jeb_
+- SeargeDP
+- gabenewellbellevue
+- RiotPhreak
+- Totalbiscuit
+- Day9tv
+
+Celebrity Accounts:
+- ReallyRickAstley
+- GovSchwarzenegger
+- OfficialMLee
+- TheRealStanLee
+- ActuallyNPH
+- OfficialLoganPaul
+- RealHughJackman
+
+NOTES:
+------
+- This list was created as an expansion but may include many accounts with default avatars
+- The original curated list was specifically tested for custom Snoo avatars
+- Consider testing avatar URLs before using accounts in production
+- Keep this file as backup when making future changes to enemy lists
+
+USAGE:
+------
+This list is used in src/server/index.ts in the generateEnemyByDifficulty function.
+Replace the famousEnemies array with your preferred curated list.
+
+Date Created: Current session
+Purpose: Backup before restoring curated avatar-tested list

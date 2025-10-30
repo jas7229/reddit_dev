@@ -3,8 +3,8 @@
     // Get canvas element
     const canvas = document.querySelector("#unity-canvas");
     
-    // Unity Module configuration
-    var Module = {
+    // Unity Module configuration (used by Unity loader)
+    window.Module = {
         canvas: canvas,
         scalingMode: "auto", // ensures loader and game scale with canvas
     };

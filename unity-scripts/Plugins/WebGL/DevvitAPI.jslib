@@ -234,6 +234,85 @@ mergeInto(LibraryManager.library, {
         }).catch(error => {
             console.error('[JSLib] Error in enemy turn:', error);
         });
+    },
+
+    GetEnemyPreview: function(difficultyPtr, reroll) {
+        const difficulty = UTF8ToString(difficultyPtr);
+        
+        console.log('[JSLib] Getting enemy preview:', difficulty, 'reroll:', reroll);
+        
+        getEnemyPreview(difficulty, reroll).then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Enemy preview result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['BattleSelectionManager', 'BattleUIManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnEnemyPreviewReceived', result);
+                        console.log(`[JSLib] Enemy preview message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error getting enemy preview:', error);
+        });
+    },
+
+    StartBattleWithDifficulty: function(difficultyPtr) {
+        const difficulty = UTF8ToString(difficultyPtr);
+        
+        console.log('[JSLib] Starting battle with difficulty:', difficulty);
+        
+        startBattleWithDifficulty(difficulty).then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Battle start with difficulty result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['BattleUIManager', 'PlayerManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnBattleStarted', result);
+                        console.log(`[JSLib] Battle start message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error starting battle with difficulty:', error);
+        });
+    },
+
+    GetLeaderboard: function() {
+        console.log('[JSLib] Getting leaderboard data');
+        
+        getLeaderboard().then(result => {
+            const data = JSON.parse(result);
+            console.log('[JSLib] Leaderboard result:', data);
+            
+            if (data.status === 'success') {
+                const possibleNames = ['LeaderboardManager', 'GameManager', 'Manager'];
+                
+                for (let name of possibleNames) {
+                    try {
+                        SendMessage(name, 'OnLeaderboardReceived', result);
+                        console.log(`[JSLib] Leaderboard message sent to: ${name}`);
+                        break;
+                    } catch (e) {
+                        console.log(`[JSLib] GameObject '${name}' not found, trying next...`);
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[JSLib] Error getting leaderboard:', error);
+        });
     }
 
 });

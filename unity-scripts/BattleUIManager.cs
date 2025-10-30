@@ -12,6 +12,9 @@ public class BattleUIManager : MonoBehaviour
     private static extern void StartBattle();
     
     [DllImport("__Internal")]
+    private static extern void StartBattleWithDifficulty(string difficulty);
+    
+    [DllImport("__Internal")]
     private static extern void BattleAction(string battleId, string action);
     
     [Header("Player UI References")]
@@ -63,8 +66,16 @@ public class BattleUIManager : MonoBehaviour
     public Button specialButton;
     public Button healButton;
     
+    [Header("Damage Text System")]
+    public GameObject damageTextPrefab; // Prefab with TextMeshProUGUI component
+    public Transform playerDamageTextParent; // Parent transform for player damage texts
+    public Transform enemyDamageTextParent; // Parent transform for enemy damage texts
+    
+    // Battle Selection UI moved to BattleSelectionManager for better organization
+    
     [Header("Manager References")]
     public PlayerManager playerManager;
+    public BattleSelectionManager battleSelectionManager;
     
     [Header("Update Settings")]
     public bool autoUpdate = true;
@@ -91,15 +102,24 @@ public class BattleUIManager : MonoBehaviour
     private bool playerExperienceFlashing = false;
     private bool enemyHealthFlashing = false;
     
+    // Battle Selection System (handled by BattleSelectionManager)
+    // Variables moved to BattleSelectionManager for better separation of concerns
+    
     // Turn indicator colors
     private Color inactiveTurnColor = new Color(0.5f, 0.5f, 0.5f, 0.3f); // Grey, semi-transparent
-    private Color activeTurnColor = new Color(1f, 0.2f, 0.2f, 0.8f); // Red, more opaque
-    private Color enemyTurnColor = new Color(1f, 0.6f, 0f, 0.8f); // Orange for enemy turn
+    private Color activeTurnColor = new Color(0.4f, 0.8f, 0.5f, 0.8f); // Muted green for player turn
+    private Color enemyTurnColor = new Color(0.8f, 0.5f, 0.3f, 0.8f); // Muted red-orange for enemy turn
     
     // Battle results colors
-    private Color victoryColor = new Color(0f, 1f, 0.2f, 1f); // Bright green
+    private Color victoryColor = new Color(1f, 1f, 1f, 1f); // Clean white
     private Color defeatColor = new Color(1f, 0.2f, 0.2f, 1f); // Red
     private Color levelUpColor = new Color(1f, 0.8f, 0f, 1f); // Gold
+    
+    // Damage text colors (muted tones)
+    private Color damageTextColor = new Color(0.8f, 0.3f, 0.3f, 1f); // Muted red
+    private Color healTextColor = new Color(0.3f, 0.7f, 0.4f, 1f); // Muted green
+    private Color specialTextColor = new Color(0.9f, 0.7f, 0.2f, 1f); // Muted gold
+    private Color defendTextColor = new Color(0.4f, 0.6f, 0.8f, 1f); // Muted blue
     
     // External function for processing enemy turns
     [DllImport("__Internal")]
@@ -119,6 +139,12 @@ public class BattleUIManager : MonoBehaviour
         if (playerManager == null) 
         {
             playerManager = FindFirstObjectByType<PlayerManager>();
+        }
+        
+        // Find BattleSelectionManager if not assigned
+        if (battleSelectionManager == null)
+        {
+            battleSelectionManager = FindFirstObjectByType<BattleSelectionManager>();
         }
         
         // Hide battle panel initially
@@ -498,10 +524,17 @@ public class BattleUIManager : MonoBehaviour
     // Public methods for battle control
     public void StartNewBattle() 
     {
+        // Get difficulty from BattleSelectionManager if available
+        string difficulty = "medium"; // Default fallback
+        if (battleSelectionManager != null)
+        {
+            difficulty = battleSelectionManager.GetSelectedDifficulty();
+        }
+        
         #if UNITY_WEBGL && !UNITY_EDITOR
-            StartBattle();
+            StartBattleWithDifficulty(difficulty);
         #else
-            Debug.Log("Battle functions only work in WebGL builds");
+            Debug.Log($"Would start {difficulty} battle in WebGL build");
         #endif
     }
     
@@ -633,8 +666,8 @@ public class BattleUIManager : MonoBehaviour
                 // Only start animation sequence if not already playing
                 if (!isPlayingBattleAnimation)
                 {
-                    // Use the last player action for animations
-                    StartCoroutine(HandlePlayerActionSequence(lastPlayerAction, response.battleEnded));
+                    // Use the last player action for animations and pass battle turn data for damage text
+                    StartCoroutine(HandlePlayerActionSequence(lastPlayerAction, response.battleEnded, response.playerTurn));
                 }
                 else
                 {
@@ -654,8 +687,8 @@ public class BattleUIManager : MonoBehaviour
                 {
                     Debug.Log($"Battle ended! Winner: {response.winner}");
                     
-                    // Show battle results screen
-                    ShowBattleResults(response.winner, response.rewards);
+                    // Delay showing battle results to let final animations play out (snappy timing)
+                    StartCoroutine(ShowBattleResultsDelayed(response.winner, response.rewards, 0.8f));
                     
                     inActiveBattle = false; // Re-enable auto-updates after battle
                 }
@@ -668,7 +701,7 @@ public class BattleUIManager : MonoBehaviour
     }
     
     // Handle the complete player action sequence with action-specific animations
-    private System.Collections.IEnumerator HandlePlayerActionSequence(string playerAction, bool battleEnded)
+    private System.Collections.IEnumerator HandlePlayerActionSequence(string playerAction, bool battleEnded, BattleTurn playerTurn = null)
     {
         Debug.Log($"*** PLAYER {playerAction.ToUpper()} SEQUENCE STARTED ***");
         isPlayingBattleAnimation = true; // Disable auto-updates during animation
@@ -681,6 +714,13 @@ public class BattleUIManager : MonoBehaviour
         {
             Debug.Log($"Starting PLAYER {playerAction} animation");
             yield return StartCoroutine(GetPlayerActionAnimation(playerAction, playerAvatarImage));
+            
+            // Show damage text for player action after animation starts
+            if (playerTurn != null)
+            {
+                yield return new WaitForSeconds(0.2f); // Small delay for timing
+                ShowPlayerActionDamageText(playerAction, playerTurn);
+            }
         }
         
         // 2. Enemy reaction (only for attacks)
@@ -688,6 +728,13 @@ public class BattleUIManager : MonoBehaviour
         {
             Debug.Log($"Starting ENEMY reaction to {playerAction}");
             yield return StartCoroutine(GetEnemyReactionAnimation(playerAction, enemyAvatarImage));
+            
+            // Show enemy damage text after reaction animation starts
+            if (playerTurn != null && playerTurn.damage > 0)
+            {
+                yield return new WaitForSeconds(0.1f); // Small delay for timing
+                ShowEnemyDamage(playerTurn.damage);
+            }
         }
         
         Debug.Log($"Player {playerAction} sequence complete. Battle ended: {battleEnded}");
@@ -866,6 +913,13 @@ public class BattleUIManager : MonoBehaviour
                 Debug.Log($"Fallback to player data avatar URL: '{avatarUrl}'");
             }
             
+            // DEBUGGING: Check if we're getting the hardcoded fallback
+            if (avatarUrl != null && avatarUrl.Contains("nftv2_bmZ0X2VpcDE1NToxMzdfNDhhM2EwNDI0Nzg0N2VkMzUwOGI4YjRjZjdlNzIwMjViNDY5NTcwMl8z"))
+            {
+                Debug.LogWarning($"⚠️ USING HARDCODED FALLBACK AVATAR! This might be causing caching issues: {avatarUrl}");
+                Debug.LogWarning("Check if GetUserAvatar() is working properly or if player data has correct avatar URL");
+            }
+            
             Debug.Log($"Final player avatar URL: '{avatarUrl}'");
             
             if (!string.IsNullOrEmpty(avatarUrl))
@@ -915,7 +969,20 @@ public class BattleUIManager : MonoBehaviour
             yield break;
         }
 
-        using (UnityWebRequest uwr = UnityWebRequestTexture.GetTexture(url))
+        // Add cache-busting parameter to prevent old avatar caching issues
+        string cacheBustedUrl = url;
+        if (!url.Contains("?"))
+        {
+            cacheBustedUrl += $"?t={System.DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        }
+        else
+        {
+            cacheBustedUrl += $"&t={System.DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        }
+        
+        Debug.Log($"Cache-busted URL: {cacheBustedUrl}");
+
+        using (UnityWebRequest uwr = UnityWebRequestTexture.GetTexture(cacheBustedUrl))
         {
             yield return uwr.SendWebRequest();
 
@@ -937,11 +1004,11 @@ public class BattleUIManager : MonoBehaviour
             // Normalize avatar size while preserving aspect ratio
             targetImage.preserveAspect = true;
             
-            // Scale avatar to fit the Unity object size while preserving aspect ratio
+            // Control avatar positioning for consistent placement
             RectTransform rectTransform = targetImage.GetComponent<RectTransform>();
             if (rectTransform != null)
             {
-                // Get the container size (your 250x420 Unity object)
+                // Get the container size (your Unity object size)
                 Vector2 containerSize = rectTransform.sizeDelta;
                 
                 // If container size is zero, use the parent size
@@ -954,10 +1021,8 @@ public class BattleUIManager : MonoBehaviour
                     }
                 }
                 
-                Debug.Log($"{avatarType} avatar will fit container size: {containerSize.x}x{containerSize.y}");
-                
-                // Let preserveAspect handle the scaling within your container
-                // No need to override sizeDelta - Unity will handle it
+                // Keep original anchoring from Unity setup - don't force repositioning
+                Debug.Log($"{avatarType} avatar loaded with preserved Unity positioning: {containerSize.x}x{containerSize.y}");
             }
             
             // Flip enemy avatar to face left (towards player) - only once
@@ -1104,6 +1169,182 @@ public class BattleUIManager : MonoBehaviour
         }
         
         Debug.Log("Avatar visuals reset to default state");
+    }
+    
+    // Damage Text System Methods
+    private void ShowDamageText(string text, Color textColor, Transform parentTransform, bool isPlayer = false)
+    {
+        Debug.Log($"*** DAMAGE TEXT REQUESTED: '{text}' for {(isPlayer ? "Player" : "Enemy")} ***");
+        
+        if (damageTextPrefab == null)
+        {
+            Debug.LogError("❌ DAMAGE TEXT PREFAB NOT ASSIGNED! Please assign damageTextPrefab in BattleUIManager inspector.");
+            return;
+        }
+        
+        if (parentTransform == null)
+        {
+            Debug.LogError($"❌ PARENT TRANSFORM NULL for {(isPlayer ? "Player" : "Enemy")}! Please assign {(isPlayer ? "playerDamageTextParent" : "enemyDamageTextParent")} in BattleUIManager inspector.");
+            return;
+        }
+        
+        Debug.Log($"✅ Creating damage text: Prefab={damageTextPrefab.name}, Parent={parentTransform.name}");
+        
+        // Create damage text instance
+        GameObject damageTextObj = Instantiate(damageTextPrefab, parentTransform);
+        damageTextObj.name = $"DamageText_{text}_{System.DateTime.Now.Ticks}"; // Unique name for debugging
+        
+        Debug.Log($"✅ Instantiated damage text object: {damageTextObj.name}");
+        
+        TextMeshProUGUI damageText = damageTextObj.GetComponent<TextMeshProUGUI>();
+        
+        if (damageText == null)
+        {
+            Debug.LogError("❌ DAMAGE TEXT PREFAB MISSING TextMeshProUGUI COMPONENT! Please add TextMeshProUGUI to your prefab.");
+            Destroy(damageTextObj);
+            return;
+        }
+        
+        Debug.Log($"✅ Found TextMeshProUGUI component on damage text object");
+        
+        // Set up the text
+        damageText.text = text;
+        damageText.color = textColor;
+        damageText.fontSize = 24f;
+        damageText.fontStyle = FontStyles.Bold;
+        damageText.alignment = TextAlignmentOptions.Center;
+        
+        // Add white outline for visibility on any background
+        damageText.outlineColor = Color.white;
+        damageText.outlineWidth = 0.2f; // Subtle but visible outline
+        damageText.enableAutoSizing = false; // Prevent outline from affecting size
+        
+        // Start position (slightly randomized for variety)
+        Vector3 startPos = Vector3.zero;
+        startPos.x += UnityEngine.Random.Range(-20f, 20f); // Random horizontal offset
+        damageTextObj.transform.localPosition = startPos;
+        
+        Debug.Log($"✅ Damage text setup complete. Starting animation for: {text}");
+        Debug.Log($"   - Position: {damageTextObj.transform.localPosition}");
+        Debug.Log($"   - Parent: {parentTransform.name}");
+        Debug.Log($"   - Text: '{damageText.text}' Color: {damageText.color}");
+        
+        // Animate the damage text
+        StartCoroutine(AnimateDamageText(damageTextObj, isPlayer));
+    }
+    
+    private System.Collections.IEnumerator AnimateDamageText(GameObject damageTextObj, bool isPlayer)
+    {
+        Debug.Log($"🎭 STARTING DAMAGE TEXT ANIMATION for {damageTextObj.name}");
+        
+        if (damageTextObj == null) 
+        {
+            Debug.LogError("❌ Damage text object is null in animation!");
+            yield break;
+        }
+        
+        TextMeshProUGUI damageText = damageTextObj.GetComponent<TextMeshProUGUI>();
+        RectTransform rectTransform = damageTextObj.GetComponent<RectTransform>();
+        
+        if (damageText == null || rectTransform == null)
+        {
+            Debug.LogError("❌ Missing components for damage text animation!");
+            yield break;
+        }
+        
+        Debug.Log($"🎭 Setting up initial state: transparent and small");
+        
+        // Start transparent and small
+        Color originalColor = damageText.color;
+        damageText.color = new Color(originalColor.r, originalColor.g, originalColor.b, 0f);
+        rectTransform.localScale = Vector3.zero;
+        
+        Debug.Log($"🎭 Starting LeanTween animations...");
+        
+        // Phase 1: Pop in with bounce
+        LeanTween.scale(damageTextObj, Vector3.one, 0.3f)
+            .setEase(LeanTweenType.easeOutBack)
+            .setOvershoot(1.2f);
+        
+        LeanTween.alphaText(rectTransform, 1f, 0.2f)
+            .setEase(LeanTweenType.easeOutQuad);
+        
+        // Phase 2: Float upward
+        Vector3 endPos = rectTransform.localPosition + Vector3.up * 60f;
+        LeanTween.moveLocal(damageTextObj, endPos, 1.2f)
+            .setEase(LeanTweenType.easeOutQuad)
+            .setDelay(0.3f);
+        
+        // Phase 3: Fade out
+        LeanTween.alphaText(rectTransform, 0f, 0.4f)
+            .setEase(LeanTweenType.easeInQuad)
+            .setDelay(0.8f)
+            .setOnComplete(() => {
+                if (damageTextObj != null)
+                {
+                    Destroy(damageTextObj);
+                }
+            });
+        
+        // Total animation time: ~1.6 seconds
+        yield return new WaitForSeconds(1.6f);
+    }
+    
+    // Helper methods for different damage types
+    private void ShowPlayerDamage(int damage)
+    {
+        ShowDamageText($"-{damage} HP", damageTextColor, playerDamageTextParent, true);
+    }
+    
+    private void ShowEnemyDamage(int damage)
+    {
+        ShowDamageText($"-{damage} HP", damageTextColor, enemyDamageTextParent, false);
+    }
+    
+    private void ShowPlayerHeal(int healing)
+    {
+        ShowDamageText($"+{healing} HP", healTextColor, playerDamageTextParent, true);
+    }
+    
+    private void ShowPlayerSpecialGain(int spGain)
+    {
+        ShowDamageText($"+{spGain} SP", specialTextColor, playerDamageTextParent, true);
+    }
+    
+    private void ShowPlayerDefend()
+    {
+        ShowDamageText("DEFEND", defendTextColor, playerDamageTextParent, true);
+    }
+    
+    // Show appropriate damage text based on player action and battle turn data
+    private void ShowPlayerActionDamageText(string playerAction, BattleTurn playerTurn)
+    {
+        if (playerTurn == null) return;
+        
+        switch (playerAction.ToLower())
+        {
+            case "heal":
+                if (playerTurn.healing > 0)
+                {
+                    ShowPlayerHeal(playerTurn.healing);
+                }
+                break;
+            case "defend":
+                ShowPlayerDefend();
+                break;
+            case "attack":
+            case "special":
+                // Damage text for enemy will be shown separately
+                // Could show SP gain here if we track it
+                break;
+        }
+    }
+    
+    // Show enemy turn damage text with delay to sync with animations
+    private System.Collections.IEnumerator ShowEnemyTurnDamageTextDelayed(int damage, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        ShowPlayerDamage(damage);
     }
     
     // Enable/disable action buttons
@@ -1291,6 +1532,12 @@ public class BattleUIManager : MonoBehaviour
                 // Show enemy turn animation
                 AnimateBattleText("Enemy Turn Complete");
                 
+                // Show damage text for enemy turn (player taking damage)
+                if (response.enemyTurn != null && response.enemyTurn.damage > 0)
+                {
+                    StartCoroutine(ShowEnemyTurnDamageTextDelayed(response.enemyTurn.damage, 0.5f));
+                }
+                
                 // Re-enable action buttons if it's player's turn again
                 if (!response.battleEnded && currentBattle.isActive && currentBattle.currentTurn == "player")
                 {
@@ -1302,8 +1549,8 @@ public class BattleUIManager : MonoBehaviour
                 {
                     Debug.Log($"Battle ended after enemy turn! Winner: {response.winner}");
                     
-                    // Show battle results screen
-                    ShowBattleResults(response.winner, response.rewards);
+                    // Delay showing battle results to let final animations play out (snappy timing)
+                    StartCoroutine(ShowBattleResultsDelayed(response.winner, response.rewards, 0.8f));
                     
                     inActiveBattle = false; // Re-enable auto-updates after battle
                 }
@@ -1319,6 +1566,14 @@ public class BattleUIManager : MonoBehaviour
     public bool IsInActiveBattle()
     {
         return inActiveBattle && currentBattle != null && currentBattle.isActive;
+    }
+    
+    // Delayed battle results to let final animations play out
+    private System.Collections.IEnumerator ShowBattleResultsDelayed(string winner, BattleRewards rewards, float delay)
+    {
+        Debug.Log($"Waiting {delay} seconds before showing battle results to let animations finish");
+        yield return new WaitForSeconds(delay);
+        ShowBattleResults(winner, rewards);
     }
     
     // Show battle results screen with rewards
@@ -1420,7 +1675,7 @@ public class BattleUIManager : MonoBehaviour
         StartCoroutine(ShowResultsAnimation(isVictory));
     }
     
-    // Animate the results screen appearing
+    // Animate the results screen appearing with LeanTween bounce
     private System.Collections.IEnumerator ShowResultsAnimation(bool isVictory)
     {
         if (battleResultsPanel == null) yield break;
@@ -1432,6 +1687,11 @@ public class BattleUIManager : MonoBehaviour
         if (resultsBackground != null)
         {
             resultsBackground.transform.localScale = Vector3.zero;
+            
+            // LeanTween bouncy scale-in animation
+            LeanTween.scale(resultsBackground.gameObject, Vector3.one, 0.6f)
+                .setEase(LeanTweenType.easeOutBack) // Bouncy overshoot effect
+                .setOvershoot(1.2f); // Extra bounce
         }
         
         // Hide enemy avatar initially for dramatic reveal
@@ -1440,38 +1700,8 @@ public class BattleUIManager : MonoBehaviour
             resultsEnemyAvatar.color = new Color(1f, 1f, 1f, 0f); // Transparent
         }
         
-        // Scale in animation
-        float duration = 0.5f;
-        float elapsed = 0f;
-        
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float progress = elapsed / duration;
-            
-            // Smooth scale-in with slight overshoot
-            float scale = Mathf.LerpUnclamped(0f, 1f, 
-                Mathf.SmoothStep(0f, 1.1f, progress));
-            
-            if (progress > 0.8f)
-            {
-                // Settle back to 1.0 in the last 20%
-                scale = Mathf.Lerp(1.1f, 1f, (progress - 0.8f) / 0.2f);
-            }
-            
-            if (resultsBackground != null)
-            {
-                resultsBackground.transform.localScale = Vector3.one * scale;
-            }
-            
-            yield return null;
-        }
-        
-        // Ensure final scale is exactly 1
-        if (resultsBackground != null)
-        {
-            resultsBackground.transform.localScale = Vector3.one;
-        }
+        // Wait for scale animation to complete
+        yield return new WaitForSeconds(0.6f);
         
         // Animate enemy avatar appearing
         if (resultsEnemyAvatar != null)
@@ -1528,15 +1758,124 @@ public class BattleUIManager : MonoBehaviour
             // For defeat, keep the enemy slightly larger
             resultsEnemyAvatar.transform.localScale = Vector3.one * 1.1f;
         }
+        
+        // Start ambient animations after reveal
+        StartCoroutine(AmbientEnemyAvatarAnimation());
+        StartCoroutine(AmbientContinueButtonAnimation());
+    }
+    
+    // Ambient animation for enemy avatar - alternating double-pulse with continue button
+    private System.Collections.IEnumerator AmbientEnemyAvatarAnimation()
+    {
+        if (resultsEnemyAvatar == null) yield break;
+        
+        Vector3 baseScale = resultsEnemyAvatar.transform.localScale;
+        
+        while (battleResultsPanel != null && battleResultsPanel.activeInHierarchy)
+        {
+            // Enemy avatar goes first - double pulse
+            yield return new WaitForSeconds(2f); // Initial wait
+            
+            // Check if results panel is still active
+            if (battleResultsPanel == null || !battleResultsPanel.activeInHierarchy) break;
+            
+            // First pulse
+            LeanTween.scale(resultsEnemyAvatar.gameObject, baseScale * 1.12f, 0.2f)
+                .setEase(LeanTweenType.easeOutBack)
+                .setOnComplete(() => {
+                    LeanTween.scale(resultsEnemyAvatar.gameObject, baseScale, 0.2f)
+                        .setEase(LeanTweenType.easeInBack);
+                });
+            
+            yield return new WaitForSeconds(0.6f); // Wait for first pulse to complete
+            
+            // Second pulse (quick double-tap effect)
+            LeanTween.scale(resultsEnemyAvatar.gameObject, baseScale * 1.08f, 0.15f)
+                .setEase(LeanTweenType.easeOutBack)
+                .setOnComplete(() => {
+                    LeanTween.scale(resultsEnemyAvatar.gameObject, baseScale, 0.15f)
+                        .setEase(LeanTweenType.easeInBack);
+                });
+            
+            // Wait before continue button's turn (total cycle: ~4 seconds)
+            yield return new WaitForSeconds(1.2f);
+        }
+    }
+    
+    // Ambient animation for continue button - alternating double-pulse with enemy avatar
+    private System.Collections.IEnumerator AmbientContinueButtonAnimation()
+    {
+        if (continueButton == null) yield break;
+        
+        Transform buttonTransform = continueButton.transform;
+        Vector3 baseScale = buttonTransform.localScale;
+        
+        while (battleResultsPanel != null && battleResultsPanel.activeInHierarchy)
+        {
+            // Continue button waits for enemy avatar to finish, then does its double pulse
+            yield return new WaitForSeconds(4f); // Wait for enemy avatar's cycle
+            
+            // Check if results panel is still active
+            if (battleResultsPanel == null || !battleResultsPanel.activeInHierarchy) break;
+            
+            // First pulse (slightly different timing/scale for variety)
+            LeanTween.scale(continueButton.gameObject, baseScale * 1.1f, 0.25f)
+                .setEase(LeanTweenType.easeOutSine)
+                .setOnComplete(() => {
+                    LeanTween.scale(continueButton.gameObject, baseScale, 0.25f)
+                        .setEase(LeanTweenType.easeInSine);
+                });
+            
+            yield return new WaitForSeconds(0.7f); // Wait for first pulse to complete
+            
+            // Second pulse (quick double-tap effect)
+            LeanTween.scale(continueButton.gameObject, baseScale * 1.06f, 0.18f)
+                .setEase(LeanTweenType.easeOutSine)
+                .setOnComplete(() => {
+                    LeanTween.scale(continueButton.gameObject, baseScale, 0.18f)
+                        .setEase(LeanTweenType.easeInSine);
+                });
+            
+            // Wait before enemy avatar's turn (total cycle: ~4 seconds)
+            yield return new WaitForSeconds(1.1f);
+        }
     }
     
     // Called by continue button
     public void OnContinueButtonPressed()
     {
-        StartCoroutine(HideResultsAnimation());
+        StartCoroutine(HideResultsAnimationAndShowSelection());
     }
     
-    // Animate the results screen disappearing
+    // Hide results and show battle selection for next battle
+    private System.Collections.IEnumerator HideResultsAnimationAndShowSelection()
+    {
+        // First hide the results panel
+        yield return StartCoroutine(HideResultsAnimation());
+        
+        // Small delay before showing selection screen
+        yield return new WaitForSeconds(0.5f);
+        
+        // Open battle selection for next battle
+        OpenBattleSelection();
+    }
+    
+    // Public method to open battle selection screen
+    public void OpenBattleSelection()
+    {
+        Debug.Log("Opening battle selection from BattleUIManager");
+        
+        if (battleSelectionManager != null)
+        {
+            battleSelectionManager.OpenBattleSelection();
+        }
+        else
+        {
+            Debug.LogWarning("BattleSelectionManager not assigned! Please assign it in the inspector.");
+        }
+    }
+    
+    // Animate the results screen disappearing with LeanTween bounce
     private System.Collections.IEnumerator HideResultsAnimation()
     {
         if (battleResultsPanel == null) yield break;
@@ -1547,40 +1886,34 @@ public class BattleUIManager : MonoBehaviour
             continueButton.interactable = false;
         }
         
-        // Scale out animation
-        float duration = 0.3f;
-        float elapsed = 0f;
-        
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float progress = elapsed / duration;
-            
-            float scale = Mathf.Lerp(1f, 0f, progress);
-            
-            if (resultsBackground != null)
-            {
-                resultsBackground.transform.localScale = Vector3.one * scale;
-            }
-            
-            yield return null;
-        }
-        
-        // Hide the panel
-        Debug.Log("Deactivating battle results panel");
-        battleResultsPanel.SetActive(false);
-        
-        // Hide battle panel
-        if (battlePanel != null)
-        {
-            battlePanel.SetActive(false);
-        }
-        
-        // Reset scale for next time
         if (resultsBackground != null)
         {
-            resultsBackground.transform.localScale = Vector3.one;
+            // First, slight grow for anticipation
+            LeanTween.scale(resultsBackground.gameObject, Vector3.one * 1.05f, 0.1f)
+                .setEase(LeanTweenType.easeOutQuad)
+                .setOnComplete(() => {
+                    // Then bouncy shrink to zero
+                    LeanTween.scale(resultsBackground.gameObject, Vector3.zero, 0.4f)
+                        .setEase(LeanTweenType.easeInBack) // Bouncy shrink effect
+                        .setOvershoot(1.1f) // Extra bounce on the way out
+                        .setOnComplete(() => {
+                            // Hide panels after animation
+                            Debug.Log("Deactivating battle results panel");
+                            battleResultsPanel.SetActive(false);
+                            
+                            if (battlePanel != null)
+                            {
+                                battlePanel.SetActive(false);
+                            }
+                            
+                            // Reset scale for next time
+                            resultsBackground.transform.localScale = Vector3.one;
+                        });
+                });
         }
+        
+        // Wait for the full animation to complete
+        yield return new WaitForSeconds(0.5f);
     }
 
     
@@ -1826,10 +2159,25 @@ public class BattleRewards
 }
 
 [System.Serializable]
+public class BattleTurn
+{
+    public string attacker;
+    public string defender;
+    public string action;
+    public int damage;
+    public int healing;
+    public string message;
+    public int attackerHpAfter;
+    public int defenderHpAfter;
+}
+
+[System.Serializable]
 public class BattleActionResponse
 {
     public string status;
     public BattleState battleState;
+    public BattleTurn playerTurn;
+    public BattleTurn enemyTurn;
     public bool battleEnded;
     public string winner;
     public BattleRewards rewards;

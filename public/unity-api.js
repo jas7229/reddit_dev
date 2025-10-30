@@ -311,14 +311,40 @@ window.BattleAction = function (battleId, action) {
 window.getBattle = window.UnityDevvitAPI.getBattle;
 window.processEnemyTurn = window.UnityDevvitAPI.processEnemyTurn;
 
-// Leaderboard function
-window.getLeaderboard = window.UnityDevvitAPI.getLeaderboard;
-
 // Player reset function
 window.resetPlayer = window.UnityDevvitAPI.resetPlayer;
 
 // Enemy preview function
 window.getEnemyPreview = window.UnityDevvitAPI.getEnemyPreview;
+
+// Battle start with difficulty
+window.startBattleWithDifficulty = async function(difficulty) {
+    try {
+        console.log('[Unity API] Starting battle with difficulty:', difficulty);
+        const response = await fetch('/api/battle/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ difficulty })
+        });
+        
+        const data = await response.json();
+        console.log('[Unity API] Battle start with difficulty result:', data);
+        
+        // Call Unity callback if battle started successfully
+        if (data.status === 'success' && data.battleState) {
+            if (window.unityInstance) {
+                window.unityInstance.SendMessage('BattleUIManager', 'OnBattleStarted', JSON.stringify(data));
+            }
+        }
+        
+        return JSON.stringify(data);
+    } catch (error) {
+        console.error('Error starting battle with difficulty:', error);
+        return JSON.stringify({ status: 'error', message: error.message });
+    }
+};
 
 // Also create a synchronous version for immediate access
 window.getUserAvatarSync = function () {
