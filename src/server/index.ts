@@ -2235,6 +2235,331 @@ router.get('/api/admin/debug-leaderboard', async (_req, res): Promise<void> => {
   }
 });
 
+// Admin endpoint to reset specific user's stats
+router.post('/api/admin/reset-user-stats', async (req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors']; // Add more admin usernames here if needed
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] RESET USER STATS DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin only' 
+      });
+      return;
+    }
+    
+    const { targetUsername } = req.body;
+    if (!targetUsername) {
+      res.status(400).json({ status: 'error', message: 'Target username required' });
+      return;
+    }
+    
+    console.log(`[Admin] ${currentUsername} resetting stats for user: ${targetUsername}`);
+    
+    // Get current player data to preserve avatar
+    const playerKey = `player:${targetUsername}`;
+    const existingPlayerStr = await redis.get(playerKey);
+    let avatarUrl = DEFAULT_AVATAR_URL;
+    
+    if (existingPlayerStr) {
+      const existingPlayer = JSON.parse(existingPlayerStr);
+      avatarUrl = existingPlayer.avatarUrl || DEFAULT_AVATAR_URL;
+    }
+    
+    // Create fresh player with default stats
+    const resetPlayer = createNewPlayer(targetUsername, avatarUrl);
+    
+    // Save reset player
+    await redis.set(playerKey, JSON.stringify(resetPlayer));
+    
+    // Keep battles won counter (don't reset it)
+    // const battlesWonKey = `battles_won:${targetUsername}`;
+    // await redis.set(battlesWonKey, '0'); // Commented out to preserve battle history
+    
+    // Reset high score
+    const scoreKey = `score:${targetUsername}`;
+    await redis.set(scoreKey, '0');
+    
+    // Update leaderboard with reset stats (recalculate score based on new level)
+    const newScore = resetPlayer.stats.level * 100; // Level 1 = score 100
+    await redis.hSet('global_leaderboard', { [targetUsername]: newScore.toString() });
+    console.log(`[Admin] Updated leaderboard score for ${targetUsername}: ${newScore}`);
+    
+    console.log(`[Admin] Successfully reset stats for ${targetUsername}`);
+    
+    res.json({
+      status: 'success',
+      message: `Successfully reset stats for ${targetUsername}`,
+      resetPlayer: {
+        username: resetPlayer.username,
+        level: resetPlayer.stats.level,
+        experience: resetPlayer.stats.experience,
+        gold: resetPlayer.stats.gold
+      }
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error resetting user stats:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to reset user stats' });
+  }
+});
+
+// Admin endpoint to list all players
+router.get('/api/admin/list-players', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors'];
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] LIST PLAYERS DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin only' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] ${currentUsername} requesting player list`);
+    
+    // Get all players from leaderboard
+    const leaderboardHash = await redis.hGetAll('global_leaderboard');
+    const players = [];
+    
+    for (const [username, scoreStr] of Object.entries(leaderboardHash)) {
+      const playerKey = `player:${username}`;
+      const playerDataStr = await redis.get(playerKey);
+      
+      if (playerDataStr) {
+        const playerData = JSON.parse(playerDataStr);
+        const battlesWonKey = `battles_won:${username}`;
+        const battlesWon = await redis.get(battlesWonKey);
+        
+        players.push({
+          username: playerData.username || username,
+          level: playerData.stats?.level || 1,
+          experience: playerData.stats?.experience || 0,
+          battlesWon: battlesWon ? parseInt(battlesWon) : 0,
+          gold: playerData.stats?.gold || 0,
+          score: parseInt(scoreStr) || 0,
+          lastPlayed: playerData.lastPlayed
+        });
+      }
+    }
+    
+    // Sort by level descending
+    players.sort((a, b) => b.level - a.level);
+    
+    res.json({
+      status: 'success',
+      totalPlayers: players.length,
+      players: players
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error listing players:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to list players' });
+  }
+});
+
+// Admin endpoint to rebuild leaderboard from current player data
+router.post('/api/admin/rebuild-leaderboard', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors']; // Must match client-side check
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] REBUILD LEADERBOARD DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied. Admin privileges required.' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] ${currentUsername} rebuilding leaderboard from player data`);
+    
+    // Get all player keys (this is a simplified approach)
+    const leaderboardHash = await redis.hGetAll('global_leaderboard');
+    const rebuiltEntries = [];
+    
+    for (const username of Object.keys(leaderboardHash)) {
+      try {
+        const playerKey = `player:${username}`;
+        const playerDataStr = await redis.get(playerKey);
+        
+        if (playerDataStr) {
+          const playerData = JSON.parse(playerDataStr);
+          const newScore = (playerData.stats?.level || 1) * 100;
+          
+          // Update the leaderboard hash with recalculated score
+          await redis.hSet('global_leaderboard', { [username]: newScore.toString() });
+          
+          rebuiltEntries.push({
+            username,
+            level: playerData.stats?.level || 1,
+            newScore
+          });
+          
+          console.log(`[Admin] Rebuilt ${username}: Level ${playerData.stats?.level || 1} = Score ${newScore}`);
+        }
+      } catch (error) {
+        console.error(`[Admin] Error rebuilding entry for ${username}:`, error);
+      }
+    }
+    
+    console.log(`[Admin] Rebuilt ${rebuiltEntries.length} leaderboard entries`);
+    
+    res.json({
+      status: 'success',
+      message: `Successfully rebuilt leaderboard with ${rebuiltEntries.length} entries`,
+      rebuiltEntries
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error rebuilding leaderboard:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to rebuild leaderboard' });
+  }
+});
+
+// Admin endpoint to delete specific user (like LIFT_TICKET_BOT duplicate)
+router.delete('/api/admin/delete-specific-user', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors']; // Add more admin usernames here if needed
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] DELETE SPECIFIC USER DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin privileges required' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] Deleting specific user for authorized user ${currentUsername}...`);
+    
+    const targetUsername = 'LIFT_TICKET_BOT'; // The uppercase duplicate to remove
+    
+    try {
+      // Remove player data
+      console.log(`[Admin] Deleting player data: player:${targetUsername}`);
+      await redis.del(`player:${targetUsername}`);
+      
+      // Remove from leaderboard
+      console.log(`[Admin] Removing from leaderboard: ${targetUsername}`);
+      await redis.hDel('global_leaderboard', [targetUsername]);
+      
+      // Remove battles won
+      console.log(`[Admin] Deleting battles won: battles_won:${targetUsername}`);
+      await redis.del(`battles_won:${targetUsername}`);
+      
+      // Remove score
+      console.log(`[Admin] Deleting score: score:${targetUsername}`);
+      await redis.del(`score:${targetUsername}`);
+      
+      console.log(`[Admin] Successfully deleted: ${targetUsername}`);
+    } catch (redisError) {
+      console.error(`[Admin] Redis error during deletion:`, redisError);
+      throw redisError;
+    }
+    
+    res.json({
+      status: 'success',
+      message: `Successfully deleted ${targetUsername}`,
+      deletedUser: targetUsername,
+      remainingUser: 'lift_ticket_bot (lowercase version preserved)'
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error deleting specific user:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Failed to delete specific user' 
+    });
+  }
+});
+
+// Admin endpoint to cleanup exploiters (reset high-level players)
+router.post('/api/admin/cleanup-exploiters', async (_req, res): Promise<void> => {
+  try {
+    // SAFETY CHECK: Only allow specific admin users
+    const currentUsername = await reddit.getCurrentUsername();
+    const allowedAdmins = ['dreamingcolors'];
+    
+    if (!currentUsername || !allowedAdmins.includes(currentUsername)) {
+      console.log(`[Admin] CLEANUP EXPLOITERS DENIED: User ${currentUsername} is not authorized`);
+      res.status(403).json({ 
+        status: 'error', 
+        message: 'Access denied - admin only' 
+      });
+      return;
+    }
+    
+    console.log(`[Admin] ${currentUsername} cleaning up exploiters (level > 50)`);
+    
+    // Get all players from leaderboard
+    const leaderboardHash = await redis.hGetAll('global_leaderboard');
+    const resetPlayers = [];
+    
+    for (const [username, scoreStr] of Object.entries(leaderboardHash)) {
+      const playerKey = `player:${username}`;
+      const playerDataStr = await redis.get(playerKey);
+      
+      if (playerDataStr) {
+        const playerData = JSON.parse(playerDataStr);
+        const level = playerData.stats?.level || 1;
+        
+        // Reset players with suspiciously high levels
+        if (level > 50) {
+          console.log(`[Admin] Resetting exploiter: ${username} (Level ${level})`);
+          
+          // Create fresh player with default stats
+          const avatarUrl = playerData.avatarUrl || DEFAULT_AVATAR_URL;
+          const resetPlayer = createNewPlayer(username, avatarUrl);
+          
+          // Save reset player
+          await redis.set(playerKey, JSON.stringify(resetPlayer));
+          
+          // Keep battles won counter (don't reset it)
+          // const battlesWonKey = `battles_won:${username}`;
+          // await redis.set(battlesWonKey, '0'); // Commented out to preserve battle history
+          
+          // Reset high score
+          const scoreKey = `score:${username}`;
+          await redis.set(scoreKey, '0');
+          
+          // Update leaderboard with reset stats
+          await redis.hSet('global_leaderboard', { [username]: '0' });
+          
+          resetPlayers.push({
+            username,
+            oldLevel: level,
+            newLevel: 1
+          });
+        }
+      }
+    }
+    
+    console.log(`[Admin] Reset ${resetPlayers.length} exploiters`);
+    
+    res.json({
+      status: 'success',
+      message: `Reset ${resetPlayers.length} players with level > 50`,
+      resetPlayers: resetPlayers
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Error cleaning up exploiters:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to cleanup exploiters' });
+  }
+});
+
 // Use router middleware
 app.use(router);
 

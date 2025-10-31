@@ -418,6 +418,51 @@ mergeInto(LibraryManager.library, {
         }).catch(error => {
             console.error('[JSLib] Error purchasing item:', error);
         });
+    },
+
+    // Admin functionality - only works for dreamingcolors
+    InitializeAdmin: function() {
+        console.log('[JSLib] Initializing admin system...');
+        
+        // Check admin status after a delay
+        setTimeout(() => {
+            fetch('/api/init')
+                .then(response => response.json())
+                .then(data => {
+                    const username = data.username;
+                    const isAdmin = (username === 'dreamingcolors');
+                    
+                    console.log('[JSLib] Admin check - Username:', username, 'IsAdmin:', isAdmin);
+                    
+                    if (isAdmin) {
+                        // Show admin button
+                        const adminBtn = document.getElementById('admin-access-btn');
+                        if (adminBtn) {
+                            adminBtn.style.display = 'block';
+                            adminBtn.style.visibility = 'visible';
+                            adminBtn.innerHTML = '🔧 Admin Panel';
+                            
+                            // Add click handler
+                            adminBtn.onclick = function() {
+                                const panel = document.getElementById('test-panel');
+                                if (panel) {
+                                    panel.style.display = 'block';
+                                    panel.style.visibility = 'visible';
+                                    adminBtn.style.display = 'none';
+                                    console.log('[JSLib] Admin panel opened');
+                                }
+                            };
+                            
+                            console.log('[JSLib] Admin button enabled for dreamingcolors');
+                        }
+                    } else {
+                        console.log('[JSLib] User is not admin - no admin access');
+                    }
+                })
+                .catch(error => {
+                    console.error('[JSLib] Error checking admin status:', error);
+                });
+        }, 10000); // Wait 10 seconds for everything to load
     }
 
 });

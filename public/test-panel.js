@@ -1,23 +1,156 @@
-// Test Panel for API Testing
-let testPanelVisible = true;
+// Test Panel for API Testing (ADMIN ONLY)
+let testPanelVisible = false;
+let isAdmin = false;
+let currentUsername = null;
 
+// Check if current user is admin
+async function checkAdminStatus() {
+    try {
+        const response = await fetch('/api/init');
+        const data = await response.json();
+        currentUsername = data.username;
+        
+        // Enable for dreamingcolors only
+        isAdmin = (currentUsername === 'dreamingcolors');
+        
+        // Show admin button if user is admin
+        if (isAdmin) {
+            showAdminButton();
+        }
+        
+        return isAdmin;
+    } catch (error) {
+        console.error('[Admin Check] Error:', error);
+        return false;
+    }
+}
+
+// Show admin button instead of auto-opening panel
+function showAdminButton() {
+    const adminBtn = document.getElementById('admin-access-btn');
+    if (adminBtn) {
+        adminBtn.style.display = 'block';
+        adminBtn.style.visibility = 'visible';
+        console.log('[Admin] Button shown for dreamingcolors');
+    }
+}
+
+// Toggle test panel visibility
 function toggleTestPanel() {
+    if (!isAdmin) {
+        console.log('[Test Panel] Access denied - admin only');
+        return;
+    }
+    
     const panel = document.getElementById('test-panel');
-    const reopenBtn = document.getElementById('test-reopen-btn');
-    const toggleBtn = document.getElementById('test-toggle-panel');
+    const adminBtn = document.getElementById('admin-access-btn');
     
     testPanelVisible = !testPanelVisible;
     
     if (testPanelVisible) {
-        // Show panel, hide reopen button
+        // Show panel, hide admin button
         panel.style.display = 'block';
-        reopenBtn.style.display = 'none';
-        if (toggleBtn) toggleBtn.textContent = 'Hide Panel';
+        panel.style.visibility = 'visible';
+        if (adminBtn) adminBtn.style.display = 'none';
+        console.log('[Admin Panel] Opened');
     } else {
-        // Hide panel, show reopen button
+        // Hide panel, show admin button
         panel.style.display = 'none';
-        reopenBtn.style.display = 'block';
+        panel.style.visibility = 'hidden';
+        if (adminBtn) {
+            adminBtn.style.display = 'block';
+            adminBtn.style.visibility = 'visible';
+        }
+        console.log('[Admin Panel] Closed');
+    }
+}
+
+// Show admin panel
+function showAdminPanel() {
+    const panel = document.getElementById('test-panel');
+    const adminBtn = document.getElementById('admin-access-btn');
+    
+    if (panel) {
+        panel.style.display = 'block';
+        panel.style.visibility = 'visible';
+        if (adminBtn) adminBtn.style.display = 'none';
+        testPanelVisible = true;
+        console.log('[Admin Panel] Opened');
+        
+        // Add admin-specific features
+        addAdminFeatures();
+    }
+}
+
+// Show admin panel
+function showAdminPanel() {
+    const panel = document.getElementById('test-panel');
+    const reopenBtn = document.getElementById('test-reopen-btn');
+    const adminBtn = document.getElementById('admin-access-btn');
+    
+    if (panel && reopenBtn) {
+        // Override the hidden styles for admin
+        panel.style.display = 'block';
+        panel.style.visibility = 'visible';
+        reopenBtn.style.display = 'none'; // Start with panel open, reopen button hidden
+        reopenBtn.style.visibility = 'hidden';
+        
+        // Hide the admin access button when panel is open
+        if (adminBtn) {
+            adminBtn.style.display = 'none';
+        }
+        
+        testPanelVisible = true;
+        console.log('[Admin Panel] Opened for admin user');
+        
+        // Add admin-specific features
+        addAdminFeatures();
+        
+        // Set up the reopen button click handler
+        reopenBtn.addEventListener('click', toggleTestPanel);
+        
+        // Update toggle button text
+        const toggleBtn = document.getElementById('test-toggle-panel');
+        if (toggleBtn) {
+            toggleBtn.textContent = 'Hide Panel';
+        }
+    }
+}
+
+function toggleTestPanel() {
+    if (!isAdmin) {
+        console.log('[Test Panel] Access denied - admin only');
+        return;
+    }
+    
+    const panel = document.getElementById('test-panel');
+    const reopenBtn = document.getElementById('test-reopen-btn');
+    const toggleBtn = document.getElementById('test-toggle-panel');
+    const adminBtn = document.getElementById('admin-access-btn');
+    
+    testPanelVisible = !testPanelVisible;
+    
+    if (testPanelVisible) {
+        // Show panel, hide reopen button and admin button
+        panel.style.display = 'block';
+        panel.style.visibility = 'visible';
+        reopenBtn.style.display = 'none';
+        reopenBtn.style.visibility = 'hidden';
+        if (adminBtn) adminBtn.style.display = 'none';
+        if (toggleBtn) toggleBtn.textContent = 'Hide Panel';
+        console.log('[Admin Panel] Opened');
+    } else {
+        // Hide panel, show admin button (not reopen button)
+        panel.style.display = 'none';
+        panel.style.visibility = 'hidden';
+        reopenBtn.style.display = 'none';
+        reopenBtn.style.visibility = 'hidden';
+        if (adminBtn) {
+            adminBtn.style.display = 'block';
+            adminBtn.style.visibility = 'visible';
+        }
         if (toggleBtn) toggleBtn.textContent = 'Show Panel';
+        console.log('[Admin Panel] Closed - showing admin button');
     }
 }
 
@@ -552,12 +685,165 @@ window.addEventListener('DOMContentLoaded', () => {
             });
         }
         
-        // Reopen button event listener
-        if (reopenBtn) reopenBtn.addEventListener('click', toggleTestPanel);
+        // Admin access button event listener
+        const adminBtn = document.getElementById('admin-access-btn');
+        if (adminBtn) {
+            adminBtn.addEventListener('click', () => {
+                console.log('[Admin Button] Clicked - opening admin panel');
+                showAdminPanel();
+            });
+        }
+        
+        // Toggle panel button event listener already handled above
 
         logTestResult('System', 'Test panel ready! Unity API functions available.');
+        
+        // Check admin status after Unity loads
+        setTimeout(() => {
+            console.log('[Admin] Checking admin status after 15 seconds...');
+            checkAdminStatus();
+        }, 15000); // Wait 15 seconds for Unity to fully load
         
         // Auto-load player stats on startup
         refreshPlayerDisplay();
     }, 2000);
 });
+// Add 
+admin-specific features to the test panel
+function addAdminFeatures() {
+    const panel = document.getElementById('test-panel');
+    if (!panel) return;
+    
+    // Add admin section to the panel
+    const adminSection = document.createElement('div');
+    adminSection.innerHTML = `
+        <div style="border-top: 1px solid #666; margin: 10px 0; padding-top: 10px;">
+            <div style="font-weight: bold; color: #ff6b6b; margin-bottom: 5px;">🔧 ADMIN TOOLS</div>
+            
+            <div style="margin-bottom: 10px;">
+                <input type="text" id="admin-username" placeholder="Username to reset" 
+                       style="width: 150px; padding: 3px; font-size: 11px; margin-right: 5px;">
+                <button id="admin-reset-user" style="padding: 3px 8px; font-size: 11px; background: #ff6b6b; color: white; border: none; cursor: pointer;">
+                    Reset User Stats
+                </button>
+            </div>
+            
+            <div style="margin-bottom: 10px;">
+                <button id="admin-list-players" style="padding: 3px 8px; font-size: 11px; background: #4ecdc4; color: white; border: none; cursor: pointer; margin-right: 5px;">
+                    List All Players
+                </button>
+                <button id="admin-cleanup-exploiters" style="padding: 3px 8px; font-size: 11px; background: #ff9f43; color: white; border: none; cursor: pointer;">
+                    Reset High Level Players
+                </button>
+            </div>
+            
+            <div id="admin-results" style="max-height: 150px; overflow-y: auto; background: rgba(255,100,100,0.1); padding: 5px; border-radius: 3px; font-size: 10px;">
+                Admin tools ready
+            </div>
+        </div>
+    `;
+    
+    panel.appendChild(adminSection);
+    
+    // Add event listeners for admin functions
+    document.getElementById('admin-reset-user').addEventListener('click', resetUserStats);
+    document.getElementById('admin-list-players').addEventListener('click', listAllPlayers);
+    document.getElementById('admin-cleanup-exploiters').addEventListener('click', cleanupExploiters);
+}
+
+// Reset specific user's stats
+async function resetUserStats() {
+    const username = document.getElementById('admin-username').value.trim();
+    if (!username) {
+        logAdminResult('Error', 'Please enter a username');
+        return;
+    }
+    
+    try {
+        logAdminResult('Resetting User', `Resetting stats for: ${username}`);
+        
+        const response = await fetch('/api/admin/reset-user-stats', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ targetUsername: username })
+        });
+        
+        const data = await response.json();
+        logAdminResult('Reset User Result', data);
+        
+        // Clear the input
+        document.getElementById('admin-username').value = '';
+        
+    } catch (error) {
+        logAdminResult('Reset User Error', error.message);
+    }
+}
+
+// List all players for admin review
+async function listAllPlayers() {
+    try {
+        logAdminResult('Listing Players', 'Fetching all player data...');
+        
+        const response = await fetch('/api/admin/list-players');
+        const data = await response.json();
+        logAdminResult('All Players', data);
+        
+    } catch (error) {
+        logAdminResult('List Players Error', error.message);
+    }
+}
+
+// Cleanup exploiters (reset players with suspiciously high levels)
+async function cleanupExploiters() {
+    try {
+        logAdminResult('Cleanup Exploiters', 'Resetting players with level > 50...');
+        
+        const response = await fetch('/api/admin/cleanup-exploiters', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const data = await response.json();
+        logAdminResult('Cleanup Result', data);
+        
+    } catch (error) {
+        logAdminResult('Cleanup Error', error.message);
+    }
+}
+
+// Log admin results
+function logAdminResult(title, data) {
+    const results = document.getElementById('admin-results');
+    const div = document.createElement('div');
+    div.innerHTML = `<strong style="color: #ff6b6b;">${title}:</strong><br><pre style="font-size: 9px; margin: 3px 0; color: #ccc;">${JSON.stringify(data, null, 2)}</pre>`;
+    div.style.borderBottom = '1px solid rgba(255,100,100,0.3)';
+    div.style.marginBottom = '3px';
+    div.style.paddingBottom = '3px';
+    results.appendChild(div);
+    results.scrollTop = results.scrollHeight;
+}
+
+// Initialize admin check when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait a bit for Unity to load, then check admin status
+    setTimeout(checkAdminStatus, 2000);
+    
+    // Add keyboard shortcut for admin (Ctrl+Shift+T)
+    document.addEventListener('keydown', function(event) {
+        if (event.ctrlKey && event.shiftKey && event.key === 'T') {
+            if (isAdmin) {
+                toggleTestPanel();
+                event.preventDefault();
+            }
+        }
+    });
+});
+
+// Also check when Unity is ready (backup)
+if (typeof window.unityInstance !== 'undefined') {
+    setTimeout(checkAdminStatus, 1000);
+}

@@ -83,6 +83,9 @@ private float lastServerRefresh;
     private static extern void UpdatePlayerData(string statsJson);
 
     [DllImport("__Internal")]
+    private static extern void InitializeAdmin();
+
+    [DllImport("__Internal")]
     private static extern void GetEnemyData();
 
     [DllImport("__Internal")]
@@ -95,6 +98,9 @@ void Start()
         Debug.Log("Loading player data from Devvit...");
         GetPlayerData();
         lastServerRefresh = Time.time; // Add this line
+        
+        // Initialize admin system
+        InitializeAdmin();
     #else
         Debug.Log("WebGL functions only work in builds, not editor");
         CreateMockPlayerData();
